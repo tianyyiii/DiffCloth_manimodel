@@ -75,19 +75,59 @@ def step(x, v, a, simModule):
     x1, v1 = simModule(x, v, a)
     return x1, v1
 
+# def get_keypoints(mesh_file, kp_file):
+#     mesh = o3d.io.read_triangle_mesh(mesh_file)
+#     mesh_vertices = np.asarray(mesh.vertices)
+
+#     pcd = o3d.io.read_point_cloud(kp_file)
+#     pcd_points = np.asarray(pcd.points)
+
+#     indices = []
+#     for point in pcd_points:
+#         distances = np.sqrt(np.sum((mesh_vertices - point)**2, axis=1))
+#         nearest_vertex_index = np.argmin(distances)
+#         indices.append(nearest_vertex_index)
+        
+#     return indices
+
+def read_mesh_ignore_vtvn(mesh_file):
+    pos_vec = []  # 存储顶点位置
+    tri_vec = []  # 存储三角形面
+
+    with open(mesh_file, "r") as file:
+        for line in file:
+            tokens = line.split()
+            if not tokens or tokens[0].startswith("#"):
+                continue
+
+            if tokens[0] == "v":  # 顶点
+                x, y, z = map(float, tokens[1:4])
+                pos_vec.append((x, y, z))
+
+            elif tokens[0] == "f":  # 面
+                # 仅处理每个面的顶点索引，忽略可能的纹理和法线索引
+                vertex_indices = [
+                    int(face.partition("/")[0]) - 1 for face in tokens[1:4]
+                ]
+                tri_vec.append(vertex_indices)
+
+    print("load mesh: ", mesh_file, " with ", len(pos_vec), " vertices and ", len(tri_vec), " faces")
+    return np.array(pos_vec), np.array(tri_vec)
+
 def get_keypoints(mesh_file, kp_file):
-    mesh = o3d.io.read_triangle_mesh(mesh_file)
-    mesh_vertices = np.asarray(mesh.vertices)
+    # mesh = o3d.io.read_triangle_mesh(mesh_file)
+    # mesh_vertices = np.asarray(mesh.vertices)
+    mesh_vertices, _ = read_mesh_ignore_vtvn(mesh_file)
 
     pcd = o3d.io.read_point_cloud(kp_file)
     pcd_points = np.asarray(pcd.points)
 
     indices = []
     for point in pcd_points:
-        distances = np.sqrt(np.sum((mesh_vertices - point)**2, axis=1))
+        distances = np.sqrt(np.sum((mesh_vertices - point) ** 2, axis=1))
         nearest_vertex_index = np.argmin(distances)
         indices.append(nearest_vertex_index)
-        
+
     return indices
 
 def get_coord_by_idx(x, idx):
@@ -111,7 +151,7 @@ def create_bent_curve(p0, p3, bend_factor=0.5, num_points=100):
     return curve_points
 
 
-def render_record(sim):
+def render_record(sim, kp_idx=None):
     renderer = WireframeRenderer(backend="pyglet")
 
     forwardRecords = sim.forwardRecords
@@ -121,12 +161,14 @@ def render_record(sim):
     x_records = [forwardRecords[i].x.reshape(-1,3) for i in range(len(forwardRecords))]
     
     renderer.add_mesh(mesh_vertices, mesh_faces, x_records)
+    if kp_idx is not None:
+        renderer.add_kp(mesh_vertices, kp_idx)
     
     renderer.show()
     renderer.run()
     
 
-if __name__ == '__main__':
+def dlg_dress():
     config = CONFIG.copy()
     config['fabric']['name'] = "objs/DLG_Dress032_1.obj"
     config['scene']['customAttachmentVertexIdx'] = [(0.0, [])]
@@ -142,7 +184,8 @@ if __name__ == '__main__':
         a = torch.tensor([])
         x0, v0 = step(x0, v0, a, pysim)
         
-
+    
+    render_record(sim)
     # diffcloth.render(sim, False, False)
     
     config['scene']['customAttachmentVertexIdx'] = [(0.0, [kp_idx[0], kp_idx[5]])]
@@ -173,6 +216,58 @@ if __name__ == '__main__':
         x0, v0 = step(x0, v0, a, pysim)
     
     
-    render_record(sim)
+    render_record(sim, [kp_idx[4], kp_idx[7], kp_idx[1], kp_idx[8]])
+    
+def long_dress():
+    config = CONFIG.copy()
+    config['fabric']['name'] = "objs/DLLS_dress6.obj"
+    config['scene']['customAttachmentVertexIdx'] = [(0.0, [])]
+    kp_idx = get_keypoints("src/assets/meshes/objs/DLLS_dress6.obj", "src/assets/meshes/objs/kp_DLLS_dress6.pcd")
+    sim, x0, v0 = set_sim_from_config(config)
+    helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
+    pysim = pySim(sim, helper, True)
+    
+
+    for i in tqdm.tqdm(range(200)):
+        # stateInfo = sim.getStateInfo()
+        # a = torch.tensor(a)
+        a = torch.tensor([])
+        x0, v0 = step(x0, v0, a, pysim)
+        
 
     # diffcloth.render(sim, False, False)
+    render_record(sim)
+    
+    config['scene']['customAttachmentVertexIdx'] = [(0.0, [kp_idx[0], kp_idx[5]])]
+    sim, _, _ = set_sim_from_config(config)
+    helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
+    pysim = pySim(sim, helper, True)
+
+    p0 = get_coord_by_idx(x0, kp_idx[4])
+    p1 = get_coord_by_idx(x0, kp_idx[7])
+    p2 = get_coord_by_idx(x0, kp_idx[1])
+    p3 = get_coord_by_idx(x0, kp_idx[8])
+    # p0 = get_coord_by_idx(x0, kp_idx[5])
+    # p1 = get_coord_by_idx(x0, kp_idx[7])
+    # p2 = get_coord_by_idx(x0, kp_idx[0])
+    # p3 = get_coord_by_idx(x0, kp_idx[8])
+    
+    num_points = 400
+    
+    curve_points1 = create_bent_curve(p0.detach().numpy(), p1.detach().numpy(), bend_factor=3, num_points=num_points)
+    curve_points2 = create_bent_curve(p2.detach().numpy(), p3.detach().numpy(), bend_factor=3, num_points=num_points)
+
+    for i in tqdm.tqdm(range(100)):
+        # stateInfo = sim.getStateInfo()
+        # a = stateInfo.x_fixedpoints
+        # a = a + np.array([0, 0.1, 0])
+        # a = torch.tensor(a)
+        a = torch.tensor(np.concatenate((curve_points1[i], curve_points2[i])))
+        x0, v0 = step(x0, v0, a, pysim)
+    
+    
+    render_record(sim, [kp_idx[4], kp_idx[7], kp_idx[1], kp_idx[8]])
+
+if __name__ == '__main__':
+    dlg_dress()
+    # long_dress()
