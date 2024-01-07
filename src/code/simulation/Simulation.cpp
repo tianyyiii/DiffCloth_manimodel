@@ -1017,7 +1017,7 @@ double Simulation::stepFixPoints(double t) {
   return t_splinefraction;
 }
 
-void Simulation::stepNN(int idx, const VecXd& x,const VecXd& v,const VecXd& fixedPointPos) {
+void Simulation::stepNN(int idx, const VecXd& x,const VecXd& v, const VecXd& fixedPointPos) {
 
   sceneConfig.trajectory = TrajectoryConfigs::PER_STEP_TRAJECTORY;
   x_n = x;
@@ -1040,6 +1040,32 @@ void Simulation::stepNN(int idx, const VecXd& x,const VecXd& v,const VecXd& fixe
   forwardRecords[forwardRecords.size()-1].stepIdx = idx;
 
 }
+
+void Simulation::stepForceNN(int idx, const VecXd& x,const VecXd& v, const VecXd& fixedPointPos, const VecXd& extForce) {
+
+  sceneConfig.trajectory = TrajectoryConfigs::PER_STEP_TRAJECTORY;
+  x_n = x;
+  v_n = v;
+  enableConstantForcefield = true;
+  external_force_field = extForce;
+
+  for ( Particle &p : particles) {
+    p.velocity = v_n.segment(p.idx * 3, 3);
+    p.pos = x_n.segment(p.idx * 3, 3);
+  }
+
+  int fixedPointDofs = fixedPointPos.rows();
+  int requiredDofs = sysMat[currentSysmatId].fixedPoints.size() * 3;
+  if (fixedPointDofs != requiredDofs) {
+    Logging::logWarning("require" + std::to_string(requiredDofs) + " fixed point dofs but input fixed point dof is " + std::to_string(fixedPointDofs) + "\n");
+  }
+  rlFixedPointPos = fixedPointPos;
+
+  step();
+  forwardRecords[forwardRecords.size()-1].stepIdx = idx;
+
+}
+
 void Simulation::step() {
    timeSteptimer = Timer();
   timeSteptimer.enabled = true;
@@ -1452,6 +1478,19 @@ Simulation::stepBackwardNN(Simulation::BackwardTaskInformation &taskInfo, VecXd 
   return stepBackward(taskInfo, backwardInfoNew, forwardInfo_new, isStart, dL_dxinit, dL_dvinit);
 }
 
+
+Simulation::BackwardInformation
+Simulation::stepForceBackwardNN(Simulation::BackwardTaskInformation &taskInfo, VecXd &dL_dxnew, VecXd &dL_dvnew,
+                           const ForwardInformation &forwardInfo_new, bool isStart, const VecXd &dL_dxinit,
+                           const VecXd &dL_dvinit) {
+  Simulation::BackwardInformation backwardInfoNew = backwardInfoDefault;
+  backwardInfoNew.dL_dx = dL_dxnew;
+  backwardInfoNew.dL_dv = dL_dvnew;
+
+  Simulation::BackwardInformation backRecord = stepBackward(taskInfo, backwardInfoNew, forwardInfo_new, isStart, dL_dxinit, dL_dvinit);
+  backRecord.dL_dfext = sceneConfig.timeStep * sceneConfig.timeStep * M_inv * backRecord.dL_dx;
+  return backRecord;
+}
 
 Simulation::BackwardInformation
 Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo, Simulation::BackwardInformation &gradient_new,

@@ -567,6 +567,11 @@ public:
                    bool isStart, const VecXd &dL_dxinit, const VecXd &dL_dvinit);
 
     BackwardInformation
+    stepForceBackwardNN(Simulation::BackwardTaskInformation &taskInfo, VecXd &dL_dxnew, VecXd &dL_dvnew,
+                   const ForwardInformation &forwardInfo_new,
+                   bool isStart, const VecXd &dL_dxinit, const VecXd &dL_dvinit);
+
+    BackwardInformation
     stepBackward(Simulation::BackwardTaskInformation &taskInfo, BackwardInformation &gradient_new,
                  const ForwardInformation &forwardInfo_new,
                  bool isStart, const VecXd &dL_dxinit, const VecXd &dL_dvinit);
@@ -703,6 +708,8 @@ public:
     void step();
 
     void stepNN(int idx, const VecXd &x, const VecXd &v, const VecXd &fixedPointPos);
+
+    void stepForceNN(int idx, const VecXd &x, const VecXd &v, const VecXd &fixedPointPos, const VecXd &extForce);
 
     void stepPrimitives();
 
