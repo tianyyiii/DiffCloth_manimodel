@@ -499,7 +499,9 @@ public:
     static Simulation* createSystem(Simulation::SceneConfiguration sceneConfig,
                  Vec3d center, bool runBackward = true);
 
-    ~Simulation() {}
+    ~Simulation() {
+      std::cout << "Simulation destructor called" << std::endl;
+    }
 
     void enableStaticPoint(bool v) {
       staticEnabled = v;

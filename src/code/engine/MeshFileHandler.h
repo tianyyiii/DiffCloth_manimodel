@@ -58,7 +58,7 @@ public:
 
       return pos;
     }
-    static void loadOBJFile(const char *filename, std::vector<Vec3d> &posVec, std::vector<Vec3i> &triVec) {
+    static void loadOBJFile_Origin(const char *filename, std::vector<Vec3d> &posVec, std::vector<Vec3i> &triVec) {
       FILE *file = fopen(filename, "rb");
       if (!file) {
         std::cerr << "file not exist:" << filename << std::endl;
@@ -132,6 +132,60 @@ public:
                   triVec.size());
 
     }
+
+    static void loadOBJFile(const char *filename, std::vector<Vec3d> &posVec, std::vector<Vec3i> &triVec) {
+    FILE *file = fopen(filename, "rb");
+    if (!file) {
+        std::cerr << "file not exist:" << filename << std::endl;
+        return;
+    }
+
+    char line_buffer[2000];
+    while (fgets(line_buffer, 2000, file)) {
+        char *first_token = strtok(line_buffer, "\r\n\t ");
+        if (!first_token || first_token[0] == '#' || first_token[0] == 0)
+            continue;
+
+        switch (first_token[0]) {
+            case 'v': {
+                if (first_token[1] == 'n' || first_token[1] == 't') {
+                    // Skipping normals and textures.
+                    continue;
+                } else {
+                    double x = atof(strtok(nullptr, "\t "));
+                    double y = atof(strtok(nullptr, "\t "));
+                    double z = atof(strtok(nullptr, "\t "));
+
+                    posVec.emplace_back(x, y, z);
+                }
+            }
+                break;
+            case 'f': {
+                char *data[30];
+                int n = 0;
+                while ((data[n] = strtok(nullptr, "\t \r\n")) != nullptr) {
+                    if (strlen(data[n]))
+                        n++;
+                }
+
+                for (int t = 0; t < (n - 2); ++t) {
+                    int vIdx[3];
+                    for (int i = 0; i < 3; i++) {
+                        std::string token = (i == 0) ? data[0] : data[t + i];
+                        std::istringstream tokenStream(token);
+                        std::string vertexIndex;
+                        std::getline(tokenStream, vertexIndex, '/');
+                        vIdx[i] = std::atoi(vertexIndex.c_str()) - 1;
+                    }
+                    triVec.emplace_back(vIdx[0], vIdx[1], vIdx[2]);
+                }
+            }
+        }
+    }
+
+    fclose(file);
+    std::printf("Finished loading obj file %s: vertex %zu triangles: %zu\n", filename, posVec.size(), triVec.size());
+}
 
 
     static void saveOBJFile(std::string filename, VecXd x_n, std::vector<Vec3i> &triangles) {

@@ -1,5 +1,9 @@
+import gc
 import sys
-sys.path.insert(0, "/root/autodl-tmp/DiffCloth_XMake/pylib")
+import os
+# sys.path.insert(0, "/root/autodl-tmp/DiffCloth_XMake/pylib")
+
+sys.path.insert(0, os.path.abspath("./pylib"))
 
 import diffcloth_py as diffcloth
 from pySim.pySim import pySim
@@ -112,7 +116,7 @@ def calculate_jacobian(x0, v0, keypoints):
         config = CONFIG
         config['scene']['customAttachmentVertexIdx'] = [(0., [point])]
         sim, x0, v0 = set_sim_from_config(config)
-        helper = diffcloth.makeOptimizeHelper(example)
+        helper = diffcloth.makeOptimizeHelperWithSim(example, sim)
         pysim = pySim(sim, helper, True)
         a = sim.getStateInfo().x_fixedpoints
         a = torch.tensor(a)
@@ -121,6 +125,8 @@ def calculate_jacobian(x0, v0, keypoints):
             jacobian = jacobian_part
         else:
             jacobian = torch.cat((jacobian, jacobian_part), dim=1)
+        del sim
+        del helper
     return jacobian, points
             
         
@@ -213,7 +219,7 @@ if __name__ == "__main__":
     helper = diffcloth.makeOptimizeHelper(example)
     pysim = pySim(sim, helper, True)
     
-    keypoints = get_keypoints("TNLC_shirt2.obj", "kp_TNLC_shirt2.pcd")
+    keypoints = get_keypoints("./src/python_code/TNLC_shirt2.obj", "./src/python_code/kp_TNLC_shirt2.pcd")
     keypoint_pos = np.zeros((10, 3))
     x_temp = x0.detach().numpy()
     for i in range(10):

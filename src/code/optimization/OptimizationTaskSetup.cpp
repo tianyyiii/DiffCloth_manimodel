@@ -10,7 +10,7 @@
 void BackwardTaskSolver::setDemoSceneConfigAndConvergence(Simulation* system, int demoNum, Simulation::BackwardTaskInformation &taskInfo) {
 
 
-  system->sceneConfig = OptimizationTaskConfigurations::demoNumToConfigMap[demoNum].scene;
+  // system->sceneConfig = OptimizationTaskConfigurations::demoNumToConfigMap[demoNum].scene;
   taskInfo.forwardAccuracyLevel = system->sceneConfig.forwardConvergenceThresh;
   taskInfo.backwardAccuracyLevel = system->sceneConfig.backwardConvergenceThresh;
 }
