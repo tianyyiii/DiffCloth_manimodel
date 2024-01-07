@@ -57,6 +57,14 @@ class WireframeRenderer:
             self.view.camera.center = mid_point
             pass
         elif event.text == 'b':
+            if len(self.mesh_pos) == 0:
+                return
+            self.mesh_pos[0] = 0
+            self.update_mesh(0, self.meshes_data[0][self.mesh_pos[0]], self.mesh_faces[0])
+            if self.kp_idx is not None:
+                self.update_kp(self.meshes_data[0][self.mesh_pos[0]][self.kp_idx])
+            mid_point = self.meshes_data[0][self.mesh_pos[0]].mean(axis=0)
+            self.view.camera.center = mid_point
             pass
 
     def init_axis(self):
@@ -101,6 +109,10 @@ class WireframeRenderer:
 
     def update_kp(self, kp):
         self.kp_scatter.set_data(kp, edge_width=0, face_color=(1, 0, 0), size=50, symbol="diamond")
+
+    def add_curve(self, v, color=(0.5, 0.5, 0.8, 1)):
+        curve = Line(v, color=color, width=10)
+        self.view.add(curve)
 
     def update_mesh(self, index, vert, face):
         mesh = self.meshes[index]

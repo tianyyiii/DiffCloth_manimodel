@@ -151,7 +151,7 @@ def create_bent_curve(p0, p3, bend_factor=0.5, num_points=100):
     return curve_points
 
 
-def render_record(sim, kp_idx=None):
+def render_record(sim, kp_idx=None, curves=None):
     renderer = WireframeRenderer(backend="pyglet")
 
     forwardRecords = sim.forwardRecords
@@ -163,6 +163,10 @@ def render_record(sim, kp_idx=None):
     renderer.add_mesh(mesh_vertices, mesh_faces, x_records)
     if kp_idx is not None:
         renderer.add_kp(mesh_vertices, kp_idx)
+
+    if curves is not None:
+        for c in curves:
+            renderer.add_curve(c)
     
     renderer.show()
     renderer.run()
@@ -216,8 +220,9 @@ def dlg_dress():
         x0, v0 = step(x0, v0, a, pysim)
     
     
-    render_record(sim, [kp_idx[4], kp_idx[7], kp_idx[1], kp_idx[8]])
-    
+    render_record(sim, [kp_idx[4], kp_idx[7], kp_idx[1], kp_idx[8]], curves=[curve_points1, curve_points2])    
+
+
 def long_dress():
     config = CONFIG.copy()
     config['fabric']['name'] = "objs/DLLS_dress6.obj"
@@ -266,7 +271,7 @@ def long_dress():
         x0, v0 = step(x0, v0, a, pysim)
     
     
-    render_record(sim, [kp_idx[4], kp_idx[7], kp_idx[1], kp_idx[8]])
+    render_record(sim, [kp_idx[4], kp_idx[7], kp_idx[1], kp_idx[8]], curves=[curve_points1, curve_points2])
 
 if __name__ == '__main__':
     dlg_dress()
