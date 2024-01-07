@@ -146,6 +146,8 @@ OptimizeHelper* makeOptimizeHelperWithSim(std::string exampleName, Simulation* s
     OptimizeHelper* helper = nullptr;
     std::cerr << "example Name: " << exampleName << std::endl;
     if (exampleName == "wear_hat") {
+        // std::cout << "######################" << std::endl;
+        // std::cout << sim->sceneConfig.fabric.name << std::endl;
         sim->setPrintVerbose(false);
         helper = BackwardTaskSolver::getOptimizeHelperPointer(sim, Demos::DEMO_WEAR_HAT);
     } else if (exampleName == "wear_sock") {
@@ -211,6 +213,15 @@ void enableOpenMP(int n_threads = 5)
 void render(Simulation* sim, bool renderPosPairs = false, bool autoExit = true)
 {
     RenderLoop::renderRecordsForSystem(sim, sim->forwardRecords, renderPosPairs, autoExit, "visualization");
+}
+
+std::vector<Vec3i> getSimMesh(Simulation* sim)
+{
+    std::vector<Vec3i> faces;
+    for (auto& mesh : sim->mesh) {
+        faces.push_back({ mesh.p0_idx, mesh.p1_idx, mesh.p2_idx });
+    }
+    return faces;
 }
 
 PYBIND11_MODULE(diffcloth_py, m)
@@ -412,7 +423,7 @@ PYBIND11_MODULE(diffcloth_py, m)
 
     m.def("makeSim", &makeSim, "initialize a simulation instance", py::arg("exampleName"), py::arg("runBackward") = true);
 
-    m.def("makeSimFromConfig", &makeSimFromConfig, "initialize a simulation instance", py::arg("config"), py::arg("runBackward") = true);
+    m.def("makeSimFromConfig", &makeSimFromConfig, "initialize a simulation instance", py::arg("config"), py::arg("runBackward") = true, py::return_value_policy::take_ownership);
 
     m.def("makeOptimizeHelper", &makeOptimizeHelper,
         "initialize an optimize helper", py::arg("exampleName"));
@@ -423,4 +434,6 @@ PYBIND11_MODULE(diffcloth_py, m)
     m.def("enableOpenMP", &enableOpenMP, "set up Open MP", py::arg("n_threads") = 5);
 
     m.def("render", &render, "rendering the previous trajectry", py::arg("sim"), py::arg("renderPosPairs") = false, py::arg("autoExit") = true);
+
+    m.def("getSimMesh", &getSimMesh, "get cloth faces", py::arg("sim"));
 }

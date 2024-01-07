@@ -663,7 +663,8 @@ if (!contactEnabled)
           Vec3d d = (f_iA / m_A - f_iB / m_B);
           info.d = d;
 
-          double clothFrictionalCoeff = 0.1;
+          // double clothFrictionalCoeff = 0.1;
+          double clothFrictionalCoeff = 0.5;
           double k = (m_A * m_B) / (m_A + m_B); //
           Vec3d r_i = k * calcualteDryFrictionForce(info.normal, info.d, clothFrictionalCoeff, info.type);
           info.r = r_i;
@@ -726,7 +727,8 @@ std::pair<std::pair<SpMat, SpMat>, VecXd> Simulation::calculatedr_df(const compl
           int nB = info.particleId2;
           double m_A = particles[nA].mass;
           double m_B = particles[nB].mass;
-          double clothFrictionalCoeff = 0.1;
+          // double clothFrictionalCoeff = 0.1;
+          double clothFrictionalCoeff = 0.5;
 
           double k = (m_A * m_B) / (m_A + m_B);
           Mat3x3d dcalc_dd = calculatedri_dfi(info.normal, info.d, clothFrictionalCoeff);
@@ -1050,6 +1052,9 @@ void Simulation::step() {
     return;
   }
 
+    // std::cout << "---------------AAAAAAAAAAA------------------" << std::endl;
+
+
   for (int i = sysMat.size() - 1; i >= 0; i--) {
     if (forwardRecords.size() >= sysMat[i].startFrameNum) {
       if ((currentSysmatId != i) || (forwardRecords.size() == 1)) {
@@ -1095,8 +1100,16 @@ void Simulation::step() {
   r.setZero();
 
   double windFactor = fillForces(f_int, f_ext, v_n, x_n, returnRecord.t);
+
+  // std::cout << "---------------BBBBBBBBBBB------------------" << std::endl;
+  // std::cout << x_n.rows() << " " << x_n.cols() << std::endl;
+  // std::cout << v_n.rows() << " " << v_n.cols() << std::endl;
+  // std::cout << M_inv.rows() << " " << M_inv.cols() << std::endl;
+  // std::cout << f_ext.rows() << " " << f_ext.cols() << std::endl;
+
   s_n = x_n + sceneConfig.timeStep * v_n + sceneConfig.timeStep * sceneConfig.timeStep * M_inv * f_ext;
 
+    // std::cout << "---------------CCCCCCCCCCCC------------------" << std::endl;
   returnRecord.x_prev = x_n;
   returnRecord.v_prev = v_n;
   returnRecord.s_n = s_n;
@@ -1105,6 +1118,8 @@ void Simulation::step() {
   returnRecord.windParams[3] = windFrequency;
   returnRecord.windParams[4] = windPhase;
   returnRecord.totalConverged = forwardRecords[forwardRecords.size() - 1].totalConverged;
+
+
 
 
   double curEnergy = 0;
@@ -1125,6 +1140,8 @@ void Simulation::step() {
   VecXd vnew_n_primitives(3 * primitives.size());
   VecXd A_t_times_p_pertype[Constraint::CONSTRAINT_NUM];
 
+
+
   // calculate translational motion of rigid body
   f_primitives.setZero();
   delta_v_primitives.setZero();
@@ -1134,6 +1151,7 @@ void Simulation::step() {
     x_n_primitives.segment(3 * i, 3) = primitives[i]->center;
     v_n_primitives.segment(3 * i, 3) = primitives[i]->velocity;
   }
+
 
 
   vnew_n_primitives = v_n_primitives + delta_v_primitives;
@@ -1897,6 +1915,8 @@ void Simulation::initScene() {
       Vec3d centerLowPoint = 0.5 * (restShapeMinDim + restShapeMaxDim);
       centerLowPoint[1] = restShapeMinDim[1];
       plane1.center = plane1.centerInit = centerLowPoint - Vec3d(0, sphere2.radius * 2 + 0.1, 0);
+      plane1.mu = 2;
+      // plane1.center = Vec3d(0, 0, 0);
       sphere2.mu = 0.9;
       sphere2.center = sphere2.centerInit =
               plane1.center + Vec3d(sphere2.radius * 0.3, sphere2.radius, sphere2.radius * 0.1);
@@ -2557,6 +2577,7 @@ void Simulation::loadSceneMeshes() {
 }
 
 void Simulation::createClothMesh() {
+  // std::cout << sceneConfig.fabric.name << " -------------------" << std::endl;
 
   Triangle::k_stiff = sceneConfig.fabric.k_stiff_stretching;
   TriangleBending::k_stiff = sceneConfig.fabric.k_stiff_bending;
