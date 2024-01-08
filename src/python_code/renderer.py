@@ -49,10 +49,13 @@ class WireframeRenderer:
         if event.text == 'a':
             if len(self.mesh_pos) == 0:
                 return
-            self.mesh_pos[0] = (self.mesh_pos[0] + 1) % len(self.meshes_data[0])
-            self.update_mesh(0, self.meshes_data[0][self.mesh_pos[0]], self.mesh_faces[0])
+            self.mesh_pos[0] = (self.mesh_pos[0] +
+                                1) % len(self.meshes_data[0])
+            self.update_mesh(
+                0, self.meshes_data[0][self.mesh_pos[0]], self.mesh_faces[0])
             if self.kp_idx is not None:
-                self.update_kp(self.meshes_data[0][self.mesh_pos[0]][self.kp_idx])
+                self.update_kp(
+                    self.meshes_data[0][self.mesh_pos[0]][self.kp_idx])
             mid_point = self.meshes_data[0][self.mesh_pos[0]].mean(axis=0)
             self.view.camera.center = mid_point
             pass
@@ -60,9 +63,11 @@ class WireframeRenderer:
             if len(self.mesh_pos) == 0:
                 return
             self.mesh_pos[0] = 0
-            self.update_mesh(0, self.meshes_data[0][self.mesh_pos[0]], self.mesh_faces[0])
+            self.update_mesh(
+                0, self.meshes_data[0][self.mesh_pos[0]], self.mesh_faces[0])
             if self.kp_idx is not None:
-                self.update_kp(self.meshes_data[0][self.mesh_pos[0]][self.kp_idx])
+                self.update_kp(
+                    self.meshes_data[0][self.mesh_pos[0]][self.kp_idx])
             mid_point = self.meshes_data[0][self.mesh_pos[0]].mean(axis=0)
             self.view.camera.center = mid_point
             pass
@@ -78,7 +83,8 @@ class WireframeRenderer:
         @view.scene.transform.changed.connect
         def on_transform_change(event):
             transform = view.camera.transform
-            self.shading_filter.light_dir = transform.map(initial_light_dir)[:3]
+            self.shading_filter.light_dir = transform.map(initial_light_dir)[
+                :3]
 
     def show(self):
         self.canvas.show()
@@ -102,13 +108,15 @@ class WireframeRenderer:
         self.kp_idx = kp_idx
         scatter = Markers()
         kp = v[kp_idx]
-        scatter.set_data(kp, edge_width=0, face_color=(1, 0, 0), size=50, symbol="diamond")
+        scatter.set_data(kp, edge_width=0, face_color=(
+            1, 0, 0), size=50, symbol="diamond")
         self.view.add(scatter)
         self.kp_scatter = scatter
         pass
 
     def update_kp(self, kp):
-        self.kp_scatter.set_data(kp, edge_width=0, face_color=(1, 0, 0), size=50, symbol="diamond")
+        self.kp_scatter.set_data(kp, edge_width=0, face_color=(
+            1, 0, 0), size=50, symbol="diamond")
 
     def add_curve(self, v, color=(0.5, 0.5, 0.8, 1)):
         curve = Line(v, color=color, width=10)
