@@ -1,5 +1,8 @@
+import sys
+sys.path.insert(0, "/root/autodl-tmp/DiffCloth_manimodel/pylib")
+
 import diffcloth_py as diffcloth
-from pySim.pySim import pySim
+from pySim.pySim import pySim, pySim_force
 import common
 
 import numpy as np
@@ -7,8 +10,57 @@ import torch
 import random
 import time
 
+CONFIG = {
+    'fabric': {
+        "clothDimX" : 6,
+        "clothDimY" : 6,
+        "k_stiff_stretching" : 10000, 
+        "k_stiff_bending" :  0.1,
+        "gridNumX" : 40,
+        "gridNumY" : 80,
+        "density" : 0.3,
+        "keepOriginalScalePoint" : False,
+        'isModel' : True,
+        "custominitPos" : False,
+        "fabricIdx" : 1,  # Enum Value
+        "color" : (0.9, 0.9, 0.9),
+        "name" :  "remeshed/top.obj",
+    },
+    'scene' : {
+        "orientation" : 0, # Enum Value
+        "attachmentPoints" : 2, # CUSTOM_ARRAY
+        "customAttachmentVertexIdx": [(0., [])], 
+        "trajectory" : 0, # Enum Value
+        "primitiveConfig" : 3, # Enum Value *3
+        'windConfig' : 0, # Enum Value
+        'camPos' :  (-10.38, 4.243, 12.72),
+        "camFocusPos" : (0, 0, 0),
+        'camFocusPointType' : 3, # Enum Value
+        "sceneBbox" :  {"min": (-7, -7, -7), "max": (7, 7, 7)},
+        "timeStep" : 1.0 / 90.0,
+        "stepNum" : 250,
+        "forwardConvergenceThresh" : 1e-8,
+        'backwardConvergenceThresh' : 5e-4,
+        'name' : "wind_tshirt"
+    }
+}
+
+def set_sim_from_config(config):
+    sim = diffcloth.makeSimFromConfig(config)
+    sim.resetSystem()
+    stateInfo = sim.getStateInfo()
+    x0 = stateInfo.x
+    v0 = stateInfo.v
+    x0 = torch.tensor(x0, requires_grad=True)
+    v0 = torch.tensor(v0, requires_grad=True)
+    return sim, x0, v0
+
 def step(x, v, a, simModule):
     x1, v1 = simModule(x, v, a)
+    return x1, v1
+
+def step_force(x, v, f, simModule):
+    x1, v1 = simModule(x=x, v=v, a=torch.tensor([]), f=f)
     return x1, v1
 
 def sample_gaussian_noise(mean, std):
@@ -37,24 +89,86 @@ def calculate_jacobian(x0, v0, a0, keypoints):
             jacobian[i * 3 + axis, :] = a00.grad
     return jacobian
 
+#right now we set v to 0 in all steps, but should be changed
+def forward_with_diffcloth(x0, v0, f, timestep, simModule):
+    x = x0.clone().detach()
+    v = v0.clone().detach()
+    f.requires_grad = True
+    print(x.shape)
+    print(v.shape)
+    print(f.shape)
+    for step in range(timestep):
+        x, v = step_force(x, v, f, simModule)
+    print(x)
+    print(v)
+    
+    loss = x[1]
+    print("yes")
+    loss.backward()
+    print(f.grad)
+    with torch.no_grad():
+        for step in range(timestep):
+            x, v = step_force(x, torch.zeros_like(v), f, simModule)
+    return x, v
+
+def forward_with_jacobian():
+    pass
+
+def forward_with_initial_jacobian():
+    pass
+
+        
+    
+
 if __name__ == "__main__":
     torch.set_printoptions(precision=8)
     common.setRandomSeed(1349)
     example = "wear_hat"
-    experiment_index = 0
-    sim, x0, v0 = set_sim(example)
-    print("----------------------")
-    print(max(x0))
-    print(min(x0))
+    experiment_index = 6
+    sim, x0, v0 = set_sim_from_config(CONFIG)
     position = sim.getStateInfo().x_fixedpoints
-    helper = diffcloth.makeOptimizeHelper(example)
+    helper = diffcloth.makeOptimizeHelperWithSim(example, sim)
     pysim = pySim(sim, helper, True)
+    vertex_num = int(len(x0)/3)
     
-    keypoints = random.sample(range(579), 20)
+    keypoints = random.sample(range(vertex_num), 10)
     
     a0_free = torch.tensor(position, requires_grad = False)
     x1_free, v1_free = step(x0, v0, a0_free, pysim)
-    ##For experiment checking one grasping point equation equality
+    
+    ## Experiment on checking multi-step jacobian accuracy        
+    if experiment_index == 6:
+        force = np.random.normal(size=3)
+        force /= np.linalg.norm(force, 2)
+        force = torch.tensor(force * 1000)
+        control = torch.zeros((vertex_num, 3)).to(torch.double)
+        grasping_point = random.sample(range(vertex_num), 1)
+        control[grasping_point, :] = force
+        control = control.flatten()
+        pysim_force = pySim_force(sim, helper, True)
+        timestep = 10
+        print("yes")
+        
+        forward_with_diffcloth(x0, v0, control, timestep, pysim_force)
+        print("yes")
+        for index in range(10):
+            for point_index, keypoint in enumerate(keypoints):
+                jacobian_predict = torch.tensor([0.] * 3)
+                for axis in range(3):
+                    with torch.no_grad():
+                        jacobian_predict[axis] = x1_free[keypoint * 3 + axis] + sum((a0 - a0_free)* jacobian[point_index *3 + axis])
+                point_error = sum((x1[keypoint * 3 : keypoint * 3 + 3] - jacobian_predict)**2)
+                point_motion = sum((x1[keypoint * 3 : keypoint * 3 + 3] - x0[keypoint * 3 : keypoint * 3 + 3])**2)
+                point_errors.append(point_error)
+                point_motions.append(point_motion)
+
+            ratio_for_scale.append(sum(point_errors)/sum(point_motions))
+            print(ratio_for_scale[-1], "ratio")
+            print(sum(point_errors), "point_errors")
+            print(sum(point_motions), "point_motions")
+                
+        average = sum(ratio_for_scale)/len(ratio_for_scale)
+        print(f"when the scale is {scale}, error ratio is {average}")
     
     if experiment_index == 0:
         x, v = x0.clone(), v0
@@ -74,7 +188,7 @@ if __name__ == "__main__":
         sim.exportCurrentSimulation("hat")
 
          
-    
+    ##For experiment checking one grasping point equation equality
     if experiment_index == 1:
         scale = 0
         target_position = np.random.normal(size=3)
@@ -283,5 +397,5 @@ if __name__ == "__main__":
             error.append(sum((jacobian.flatten()-jacobian_fixed.flatten())**2))
         print(error)
         
-        
+
         

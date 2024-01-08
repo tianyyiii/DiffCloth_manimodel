@@ -1506,7 +1506,9 @@ Simulation::stepForceBackwardNN(Simulation::BackwardTaskInformation &taskInfo, V
   backwardInfoNew.dL_dv = dL_dvnew;
 
   Simulation::BackwardInformation backRecord = stepBackward(taskInfo, backwardInfoNew, forwardInfo_new, isStart, dL_dxinit, dL_dvinit);
+  std::cout<< "no problem"<< std::flush;
   backRecord.dL_dfext = sceneConfig.timeStep * sceneConfig.timeStep * M_inv * backRecord.dL_dx;
+  std::cout<< "no problem"<< std::flush;
   return backRecord;
 }
 
@@ -1514,7 +1516,7 @@ Simulation::BackwardInformation
 Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo, Simulation::BackwardInformation &gradient_new,
                          const ForwardInformation &forwardInfo_new,
                          bool isStart, const VecXd &dL_dxinit, const VecXd &dL_dvinit) {
-
+    
   if (gradientClipping) {
     double dL_dx_maxnorm = gradientClippingThreshold;
     if ( gradient_new.dL_dx.norm() > dL_dx_maxnorm * particles.size()) {
@@ -1610,7 +1612,6 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo, Simulati
 
     timeSteptimer.toc();
     ret.rho = 0; // (P_inv * delta_P).toDense().eigenvalues().cwiseAbs().maxCoeff();
-
     // solve
 
 
@@ -1660,11 +1661,8 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo, Simulati
     }
 
 
-
-
     // step2: red
     dL_dx += M * u_star;
-
     // step3: blue dl/dv = dL/dnew * dxnew/dv  blue edg
     dL_dv += sceneConfig.timeStep * (dr_df_plusI * M).transpose() * u_star;
 
@@ -1674,6 +1672,8 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo, Simulati
     }
 
   }
+    
+
 
 
   timeSteptimer.tic("gradients");
@@ -1756,7 +1756,6 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo, Simulati
     }
   }
 
-
   if (taskInfo.dL_dfext) {
     dL_dfext_vec = sceneConfig.timeStep * sceneConfig.timeStep * dr_df_plusI.transpose() * u_star *
                    forwardInfo_new.windFactor;
@@ -1769,8 +1768,6 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo, Simulati
       ret.dL_dfext += delta;
     }
   }
-
-
   if (taskInfo.dL_dconstantForceField) {
     ret.dL_dconstantForceField = gradient_new.dL_dconstantForceField +  sceneConfig.timeStep * sceneConfig.timeStep * dr_df_plusI.transpose() * u_star;
 
@@ -1820,7 +1817,6 @@ Simulation::stepBackward(Simulation::BackwardTaskInformation &taskInfo, Simulati
 
 
   }
-
   timeSteptimer.toc(); // gradients
   timeSteptimer.ticEnd();
   ret.timer = timeSteptimer.getReportMicroseconds();

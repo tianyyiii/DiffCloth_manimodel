@@ -137,7 +137,7 @@ public:
         VecXd dL_dx;
         VecXd dL_dv;
         VecXd dL_dconstantForceField;
-        Vec3d dL_dfext;
+        VecXd dL_dfext;
         Vec5d dL_dwind; // vec3(force),period,phase
         VecXd dL_dwindtimestep;
         double dL_ddensity;

@@ -372,6 +372,7 @@ PYBIND11_MODULE(diffcloth_py, m)
         .def("getCurrentPosVelocityVec", &Simulation::getCurrentPosVelocityVec, "get posvel vecs")
         .def("appendPerStepGradient", &Simulation::appendPerStepGradient, "append grad", py::arg("x"))
         .def("stepNN", &Simulation::stepNN, "forward one step with arg", py::arg("idx"), py::arg("x"), py::arg("v"), py::arg("fixedPointPos"))
+        .def("stepForceNN", &Simulation::stepForceNN, "forward one step with arg and force", py::arg("idx"), py::arg("x"), py::arg("v"), py::arg("fixedPointPos"), py::arg("extForce"))
         .def("setWindAndCollision", &Simulation::setWindAncCollision, "setWindAndCollision", py::arg("windEnable"), py::arg("collisionEnable"), py::arg("selfCollisionEnable"), py::arg("enableConstantForcefield"))
         .def("getStateInfo", &Simulation::getStateInfo,
             "get the forward info of the current step")
@@ -390,7 +391,8 @@ PYBIND11_MODULE(diffcloth_py, m)
             "export the simulation to files",
             py::arg("fileName"))
         .def("stepBackward", &Simulation::stepBackward, "stepbackward one step", py::arg("taskInfo"), py::arg("dL_dxvfnew"), py::arg("forwardInfo_new"), py::arg("isStart"), py::arg("dL_dxinit"), py::arg("dL_dvinit"))
-        .def("stepBackwardNN", &Simulation::stepBackwardNN, "stepbackward one step", py::arg("taskInfo"), py::arg("dL_dxnew"), py::arg("dL_dvnew"), py::arg("forwardInfo_new"), py::arg("isStart"), py::arg("dL_dxinit"), py::arg("dL_dvinit"));
+        .def("stepBackwardNN", &Simulation::stepBackwardNN, "stepbackward one step", py::arg("taskInfo"), py::arg("dL_dxnew"), py::arg("dL_dvnew"), py::arg("forwardInfo_new"), py::arg("isStart"), py::arg("dL_dxinit"), py::arg("dL_dvinit"))
+        .def("stepForceBackwardNN", &Simulation::stepForceBackwardNN, "stepbackward one step with force", py::arg("taskInfo"), py::arg("dL_dxnew"), py::arg("dL_dvnew"), py::arg("forwardInfo_new"), py::arg("isStart"), py::arg("dL_dxinit"), py::arg("dL_dvinit"));
 
     // Optimization helper
     py::class_<OptimizeHelper>(m, "OptimizeHelper")
