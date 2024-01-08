@@ -395,7 +395,8 @@ PYBIND11_MODULE(diffcloth_py, m)
             "export the simulation to files",
             py::arg("fileName"))
         .def("stepBackward", &Simulation::stepBackward, "stepbackward one step", py::arg("taskInfo"), py::arg("dL_dxvfnew"), py::arg("forwardInfo_new"), py::arg("isStart"), py::arg("dL_dxinit"), py::arg("dL_dvinit"))
-        .def("stepBackwardNN", &Simulation::stepBackwardNN, "stepbackward one step", py::arg("taskInfo"), py::arg("dL_dxnew"), py::arg("dL_dvnew"), py::arg("forwardInfo_new"), py::arg("isStart"), py::arg("dL_dxinit"), py::arg("dL_dvinit"));
+        .def("stepBackwardNN", &Simulation::stepBackwardNN, "stepbackward one step", py::arg("taskInfo"), py::arg("dL_dxnew"), py::arg("dL_dvnew"), py::arg("forwardInfo_new"), py::arg("isStart"), py::arg("dL_dxinit"), py::arg("dL_dvinit"))
+        .def("stepForceBackwardNN", &Simulation::stepForceBackwardNN, "stepbackward one step with force", py::arg("taskInfo"), py::arg("dL_dxnew"), py::arg("dL_dvnew"), py::arg("forwardInfo_new"), py::arg("isStart"), py::arg("dL_dxinit"), py::arg("dL_dvinit"));
 
     // Optimization helper
     py::class_<OptimizeHelper>(m, "OptimizeHelper")
