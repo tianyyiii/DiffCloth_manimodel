@@ -372,6 +372,7 @@ PYBIND11_MODULE(diffcloth_py, m)
         .def("getCurrentPosVelocityVec", &Simulation::getCurrentPosVelocityVec, "get posvel vecs")
         .def("appendPerStepGradient", &Simulation::appendPerStepGradient, "append grad", py::arg("x"))
         .def("stepNN", &Simulation::stepNN, "forward one step with arg", py::arg("idx"), py::arg("x"), py::arg("v"), py::arg("fixedPointPos"))
+        .def("stepForceNN", &Simulation::stepForceNN, "forward one step with arg and force", py::arg("idx"), py::arg("x"), py::arg("v"), py::arg("fixedPointPos"), py::arg("f_ext"))
         .def("setWindAndCollision", &Simulation::setWindAncCollision, "setWindAndCollision", py::arg("windEnable"), py::arg("collisionEnable"), py::arg("selfCollisionEnable"), py::arg("enableConstantForcefield"))
         .def("getStateInfo", &Simulation::getStateInfo,
             "get the forward info of the current step")
