@@ -1,27 +1,25 @@
+from jacobian import full_jacobian
+import contextlib
+import io
+import json
+import time
+import random
+import open3d as o3d
+import trimesh
+import torch
+import numpy as np
+import tqdm
+import common
+from pySim.functional import SimFunction
+from pySim.pySim import pySim, pySimF
+import gc
+import math
+from renderer import WireframeRenderer
+import pywavefront
+import diffcloth_py as diffcloth
 import sys
 import os
 sys.path.insert(0, os.path.abspath("./pylib"))
-
-import diffcloth_py as diffcloth
-import pywavefront
-from renderer import WireframeRenderer
-import math
-import gc
-from pySim.pySim import pySim, pySimF
-from pySim.functional import SimFunction
-import common
-import tqdm
-import numpy as np
-import torch
-import trimesh
-import open3d as o3d
-import random
-import time
-import json
-import io
-import contextlib
-from jacobian import full_jacobian
-
 
 
 # sys.path.insert(0, "/root/autodl-tmp/DiffCloth_XMake/pylib")
@@ -82,21 +80,6 @@ def step(x, v, a, simModule):
 def stepF(x, v, a, f, simModule):
     x1, v1 = simModule(x, v, a, f)
     return x1, v1
-
-# def get_keypoints(mesh_file, kp_file):
-#     mesh = o3d.io.read_triangle_mesh(mesh_file)
-#     mesh_vertices = np.asarray(mesh.vertices)
-
-#     pcd = o3d.io.read_point_cloud(kp_file)
-#     pcd_points = np.asarray(pcd.points)
-
-#     indices = []
-#     for point in pcd_points:
-#         distances = np.sqrt(np.sum((mesh_vertices - point)**2, axis=1))
-#         nearest_vertex_index = np.argmin(distances)
-#         indices.append(nearest_vertex_index)
-
-#     return indices
 
 
 def read_mesh_ignore_vtvn(mesh_file):
@@ -219,66 +202,19 @@ def render_record(sim, kp_idx=None, curves=None):
     renderer.run()
 
 
-def calculate_jacobian_part(pysim, x0, v0, a0, keypoints):
-    total_forward_time = 0
-    forward_iteration = 0
-    total_backward_time = 0
-    backward_iteration = 0
-    jacobian = torch.zeros((len(keypoints) * 3, 3))
-    for i, keypoint in enumerate(keypoints):
-        for axis in range(3):
-            a00 = a0.clone().detach()
-            a00.requires_grad = True
-            time_start = time.time()
-            x1, v1 = step(x0.clone().detach(), v0.clone().detach(), a00, pysim)
-            time_end = time.time()
-            total_forward_time += (time_end - time_start)
-            forward_iteration += 1
-            loss = x1[keypoint * 3 + axis]
-            time_start = time.time()
-            loss.backward()
-            time_end = time.time()
-            total_backward_time += (time_end - time_start)
-            backward_iteration += 1
-            jacobian[i * 3 + axis, :] = a00.grad
-    print("forward_time", total_forward_time/forward_iteration)
-    print("backward_time", total_backward_time/backward_iteration)
-    return jacobian
-
-
-def calculate_jacobian(x0, v0, config, keypoints):
-    points = random.sample(range(int(len(x0)/3)), 100)
-    for index, point in enumerate(tqdm.tqdm(points)):
-        config = config.copy()
-        config['scene']['customAttachmentVertexIdx'] = [(0., [point])]
-        sim, x0, v0 = set_sim_from_config(config)
-        helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
-        pysim = pySim(sim, helper, True)
-        a = sim.getStateInfo().x_fixedpoints
-        a = torch.tensor(a)
-        jacobian_part = calculate_jacobian_part(pysim, x0, v0, a, keypoints)
-        if index == 0:
-            jacobian = jacobian_part
-        else:
-            jacobian = torch.cat((jacobian, jacobian_part), dim=1)
-        del sim
-        del helper
-    return jacobian, points
-
-
 def calculate_vertex_normal(v, f):
     mesh = trimesh.Trimesh(vertices=v, faces=f)
     vertex_normals = mesh.vertex_normals
     return vertex_normals
 
 
-def dlg_dress():
+def task(params):
     config = CONFIG.copy()
-    config['fabric']['name'] = "objs/DLG_Dress032_1.obj"
+    config['fabric']['name'] = params['name']
     config['scene']['customAttachmentVertexIdx'] = [(0.0, [])]
     sim, x0, v0 = set_sim_from_config(config)
-    kp_idx = get_keypoints("src/assets/meshes/objs/DLG_Dress032_1.obj",
-                           "src/assets/meshes/objs/kp_DLG_Dress032_1.pcd")
+    kp_idx = get_keypoints(params["mesh_file"],
+                           params["kp_file"])
     helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
     pysim = pySim(sim, helper, True)
 
@@ -287,9 +223,9 @@ def dlg_dress():
     mesh_vertices = x0.detach().numpy().reshape(-1, 3)
 
     # select_kp_idx = [4, 7, 1, 8]
-    select_kp_idx = [5, 7, 0, 8]
+    select_kp_idx = params["select_kp_idx"]
 
-    for i in tqdm.tqdm(range(100)):
+    for i in tqdm.tqdm(range(params["drop_step"])):
         # stateInfo = sim.getStateInfo()
         # a = torch.tensor(a)
         a = torch.tensor([])
@@ -369,14 +305,15 @@ def dlg_dress():
         data_i["step_num"] = i
         # save
 
-        jacobian = full_jacobian(mesh_vertices, mesh_faces, x0, v0, kp_idx, config)
+        jacobian = full_jacobian(
+            mesh_vertices, mesh_faces, x0, v0, kp_idx, config)
         data_i["response_matrix"] = jacobian
         print(jacobian.shape)
 
         # jacobian = calculate_jacobian(x0, v0, config, kp_idx)
         # data_i["response_matrix"] = jacobian.detach().numpy()
         # print(jacobian[0].shape)
-        
+
         data.append(data_i)
         # break
 
@@ -386,145 +323,16 @@ def dlg_dress():
                   kp_idx[select_kp_idx[2]], kp_idx[select_kp_idx[3]]], curves=[curve_points1, curve_points2])
 
 
-def dlg_dress_force():
-    config = CONFIG.copy()
-    config['fabric']['name'] = "objs/DLG_Dress032_1.obj"
-    config['scene']['customAttachmentVertexIdx'] = [(0.0, [])]
-    sim, x0, v0 = set_sim_from_config(config)
-    kp_idx = get_keypoints("src/assets/meshes/objs/DLG_Dress032_1.obj",
-                           "src/assets/meshes/objs/kp_DLG_Dress032_1.pcd")
-    helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
-    pysim = pySim(sim, helper, True)
-
-    # select_kp_idx = [4, 7, 1, 8]
-    select_kp_idx = [5, 7, 0, 8]
-
-    for i in tqdm.tqdm(range(100)):
-        # stateInfo = sim.getStateInfo()
-        # a = torch.tensor(a)
-        a = torch.tensor([])
-        x0, v0 = step(x0, v0, a, pysim)
-
-    v0 = v0 * 0
-    # render_record(sim)
-
-    config['scene']['customAttachmentVertexIdx'] = [
-        (0.0, [])]
-    sim, _, _ = set_sim_from_config(config)
-    helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
-    pysim = pySimF(sim, helper, True)
-
-    p0 = get_coord_by_idx(x0, kp_idx[select_kp_idx[0]])
-    p1 = get_coord_by_idx(x0, kp_idx[select_kp_idx[1]])
-    p2 = get_coord_by_idx(x0, kp_idx[select_kp_idx[2]])
-    p3 = get_coord_by_idx(x0, kp_idx[select_kp_idx[3]])
-    # p0 = get_coord_by_idx(x0, kp_idx[5])
-    # p1 = get_coord_by_idx(x0, kp_idx[7])
-    # p2 = get_coord_by_idx(x0, kp_idx[0])
-    # p3 = get_coord_by_idx(x0, kp_idx[8])
-
-    num_points = 5
-
-    curve_points1 = create_bent_curve(p0.detach().numpy(
-    ), p1.detach().numpy(), bend_factor=1.5, num_points=num_points)
-    curve_points2 = create_bent_curve(p2.detach().numpy(
-    ), p3.detach().numpy(), bend_factor=1.5, num_points=num_points)
-
-    force_coeff = 180
-    max_step_per_points = 20
-    distance_threshold = 0.1
-
-    for i in tqdm.tqdm(range(num_points)):
-        # stateInfo = sim.getStateInfo()
-        # a = stateInfo.x_fixedpoints
-        # a = a + np.array([0, 0.1, 0])
-        # a = torch.tensor(a)
-        # a = torch.tensor(np.concatenate((curve_points1[i], curve_points2[i])))
-        f = torch.zeros_like(x0)
-        p0_idx = kp_idx[select_kp_idx[0]]
-        p2_idx = kp_idx[select_kp_idx[2]]
-        p0_now = get_coord_by_idx(x0, p0_idx).detach().numpy()
-        p2_now = get_coord_by_idx(x0, p2_idx).detach().numpy()
-
-        f[p0_idx*3:(p0_idx+1)*3] = torch.tensor(
-            curve_points1[i] - p0_now) * force_coeff
-        f[p2_idx*3:(p2_idx+1)*3] = torch.tensor(
-            curve_points2[i] - p2_now) * force_coeff
-
-        for j in range(max_step_per_points):
-            x0, v0 = stepF(x0, v0, torch.tensor([]), f, pysim)
-
-            distance = np.linalg.norm(get_coord_by_idx(
-                x0, p0_idx).detach().numpy() - curve_points1[i])
-            distance += np.linalg.norm(get_coord_by_idx(x0,
-                                       p2_idx).detach().numpy() - curve_points2[i])
-            if distance < distance_threshold:
-                break
-            # v0 = v0 * 0
-        v0 = v0 * 0
-
-    render_record(sim, [kp_idx[select_kp_idx[0]], kp_idx[select_kp_idx[1]],
-                  kp_idx[select_kp_idx[2]], kp_idx[select_kp_idx[3]]], curves=[curve_points1, curve_points2])
-
-
-def long_dress():
-    config = CONFIG.copy()
-    config['fabric']['name'] = "objs/DLLS_dress6.obj"
-    config['scene']['customAttachmentVertexIdx'] = [(0.0, [])]
-    # config['fabric']['density'] = 0.2
-    kp_idx = get_keypoints("src/assets/meshes/objs/DLLS_dress6.obj",
-                           "src/assets/meshes/objs/kp_DLLS_dress6.pcd")
-    sim, x0, v0 = set_sim_from_config(config)
-    helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
-    pysim = pySim(sim, helper, True)
-
-    # select_kp_idx = [5, 7, 0, 8]
-    select_kp_idx = [4, 7, 1, 8]
-
-    for i in tqdm.tqdm(range(90)):
-        # stateInfo = sim.getStateInfo()
-        # a = torch.tensor(a)
-        a = torch.tensor([])
-        x0, v0 = step(x0, v0, a, pysim)
-
-    # diffcloth.render(sim, False, False)
-    render_record(sim)
-
-    config['scene']['customAttachmentVertexIdx'] = [
-        (0.0, [kp_idx[select_kp_idx[0]], kp_idx[select_kp_idx[2]]])]
-    sim, _, v0 = set_sim_from_config(config)
-    helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
-    pysim = pySim(sim, helper, True)
-
-    p0 = get_coord_by_idx(x0, kp_idx[select_kp_idx[0]])
-    p1 = get_coord_by_idx(x0, kp_idx[select_kp_idx[1]])
-    p2 = get_coord_by_idx(x0, kp_idx[select_kp_idx[2]])
-    p3 = get_coord_by_idx(x0, kp_idx[select_kp_idx[3]])
-    # p0 = get_coord_by_idx(x0, kp_idx[5])
-    # p1 = get_coord_by_idx(x0, kp_idx[7])
-    # p2 = get_coord_by_idx(x0, kp_idx[0])
-    # p3 = get_coord_by_idx(x0, kp_idx[8])
-
-    num_points = 400
-
-    curve_points1 = create_bent_curve(
-        p0.detach().numpy(), p1.detach().numpy(), bend_factor=3, num_points=num_points)
-    curve_points2 = create_bent_curve(
-        p2.detach().numpy(), p3.detach().numpy(), bend_factor=3, num_points=num_points)
-
-    for i in tqdm.tqdm(range(num_points)):
-        # stateInfo = sim.getStateInfo()
-        # a = stateInfo.x_fixedpoints
-        # a = a + np.array([0, 0.1, 0])
-        # a = torch.tensor(a)
-        a = torch.tensor(np.concatenate((curve_points1[i], curve_points2[i])))
-        x0, v0 = step(x0, v0, a, pysim)
-
-    render_record(sim, [kp_idx[select_kp_idx[0]], kp_idx[select_kp_idx[1]],
-                  kp_idx[select_kp_idx[2]], kp_idx[select_kp_idx[3]]], curves=[curve_points1, curve_points2])
-
-
 if __name__ == '__main__':
-    # dlg_dress_force()
-    dlg_dress()
-    # long_dress()
+    params = {
+        'name': "remeshed/DLG_Dress032_1.obj",
+        'mesh_file': "src/assets/meshes/objs/DLG_Dress032_1.obj",
+        'kp_file': "src/assets/meshes/objs/kp_DLG_Dress032_1.pcd",
+        'drop_step': 100,
+        'select_kp_idx': [5, 7, 0, 8],
+        "line_points": 20,
+        "bend_factor": 1.5,
+        "point_spacing": 0.2,
+    }
+
+    task(params)
