@@ -63,7 +63,7 @@ def calculate_jacobian_part(pysim, x, v, a, keypoints):
 
 
 def calculate_jacobian(x, v, keypoints, config):
-    points = random.sample(range(int(len(x)/3)), 10)
+    points = random.sample(range(int(len(x)/3)), 100)
     for index, point in tqdm(enumerate(points)):
         config['scene']['customAttachmentVertexIdx'] = [(0., [point])]
         sim, _, _ = set_sim_from_config(config)
