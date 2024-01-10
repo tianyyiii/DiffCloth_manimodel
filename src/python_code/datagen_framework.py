@@ -349,7 +349,7 @@ def show(params):
     mesh_vertices = x0.detach().numpy().reshape(-1, 3)
 
     # select_kp_idx = [4, 7, 1, 8]
-    select_kp_idx = params["select_kp_idx"]
+    select_kp_idxs = params["select_kp_idx"]
 
     for i in tqdm.tqdm(range(params["drop_step"])):
         # stateInfo = sim.getStateInfo()
@@ -360,62 +360,63 @@ def show(params):
     v0 = v0 * 0
     # render_record(sim)
 
-    config['scene']['customAttachmentVertexIdx'] = [
-        (0.0, [kp_idx[select_kp_idx[0]], kp_idx[select_kp_idx[2]]])]
-    sim, _, _ = set_sim_from_config(config)
-    helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
-    pysim = pySim(sim, helper, True)
+    for select_kp_idx in select_kp_idxs:
+        config['scene']['customAttachmentVertexIdx'] = [
+            (0.0, [kp_idx[select_kp_idx[0]], kp_idx[select_kp_idx[2]]])]
+        sim, _, _ = set_sim_from_config(config)
+        helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
+        pysim = pySim(sim, helper, True)
 
-    p0 = get_coord_by_idx(x0, kp_idx[select_kp_idx[0]])
-    p1 = get_coord_by_idx(x0, kp_idx[select_kp_idx[1]])
-    p2 = get_coord_by_idx(x0, kp_idx[select_kp_idx[2]])
-    p3 = get_coord_by_idx(x0, kp_idx[select_kp_idx[3]])
+        p0 = get_coord_by_idx(x0, kp_idx[select_kp_idx[0]])
+        p1 = get_coord_by_idx(x0, kp_idx[select_kp_idx[1]])
+        p2 = get_coord_by_idx(x0, kp_idx[select_kp_idx[2]])
+        p3 = get_coord_by_idx(x0, kp_idx[select_kp_idx[3]])
 
-    num_points = 5
-    line_points = params["line_points"]
-    bend_factor = params["bend_factor"]
-    point_spacing = params["point_spacing"]
+        num_points = 5
+        line_points = params["line_points"]
+        bend_factor = params["bend_factor"]
+        point_spacing = params["point_spacing"]
 
-    # curve_points1 = create_bent_curve(p0.detach().numpy(
-    # ), p1.detach().numpy(), bend_factor=bend_factor, num_points=num_points)
-    # curve_points2 = create_bent_curve(p2.detach().numpy(
-    # ), p3.detach().numpy(), bend_factor=bend_factor, num_points=num_points)
+        # curve_points1 = create_bent_curve(p0.detach().numpy(
+        # ), p1.detach().numpy(), bend_factor=bend_factor, num_points=num_points)
+        # curve_points2 = create_bent_curve(p2.detach().numpy(
+        # ), p3.detach().numpy(), bend_factor=bend_factor, num_points=num_points)
 
-    curve_points1 = create_bent_curve_spacing(p0.detach().numpy(
-    ), p1.detach().numpy(), bend_factor=bend_factor, point_spacing=point_spacing)
-    curve_points2 = create_bent_curve_spacing(p2.detach().numpy(
-    ), p3.detach().numpy(), bend_factor=bend_factor, point_spacing=point_spacing)
+        curve_points1 = create_bent_curve_spacing(p0.detach().numpy(
+        ), p1.detach().numpy(), bend_factor=bend_factor, point_spacing=point_spacing)
+        curve_points2 = create_bent_curve_spacing(p2.detach().numpy(
+        ), p3.detach().numpy(), bend_factor=bend_factor, point_spacing=point_spacing)
 
-    if curve_points1.shape[0] != curve_points2.shape[0]:
-        max_points_num = max(curve_points1.shape[0], curve_points2.shape[0])
-        curve_points1 = create_bent_curve(p0.detach().numpy(), p1.detach(
-        ).numpy(), bend_factor=bend_factor, num_points=max_points_num)
-        curve_points2 = create_bent_curve(p2.detach().numpy(), p3.detach(
-        ).numpy(), bend_factor=bend_factor, num_points=max_points_num)
-        num_points = max_points_num
-    else:
-        num_points = curve_points1.shape[0]
+        if curve_points1.shape[0] != curve_points2.shape[0]:
+            max_points_num = max(curve_points1.shape[0], curve_points2.shape[0])
+            curve_points1 = create_bent_curve(p0.detach().numpy(), p1.detach(
+            ).numpy(), bend_factor=bend_factor, num_points=max_points_num)
+            curve_points2 = create_bent_curve(p2.detach().numpy(), p3.detach(
+            ).numpy(), bend_factor=bend_factor, num_points=max_points_num)
+            num_points = max_points_num
+        else:
+            num_points = curve_points1.shape[0]
 
-    for i in tqdm.tqdm(range(num_points)):
+        for i in tqdm.tqdm(range(num_points)):
 
-        p0_now = get_coord_by_idx(
-            x0, kp_idx[select_kp_idx[0]]).detach().numpy()
-        p2_now = get_coord_by_idx(
-            x0, kp_idx[select_kp_idx[2]]).detach().numpy()
-        p0_interpolation = np.linspace(p0_now, curve_points1[i], line_points)
-        p2_interpolation = np.linspace(p2_now, curve_points2[i], line_points)
+            p0_now = get_coord_by_idx(
+                x0, kp_idx[select_kp_idx[0]]).detach().numpy()
+            p2_now = get_coord_by_idx(
+                x0, kp_idx[select_kp_idx[2]]).detach().numpy()
+            p0_interpolation = np.linspace(p0_now, curve_points1[i], line_points)
+            p2_interpolation = np.linspace(p2_now, curve_points2[i], line_points)
 
-        for j in range(line_points):
-            a = torch.tensor(np.concatenate(
-                (p0_interpolation[j], p2_interpolation[j])))
-            x0, v0 = step(x0, v0, a, pysim)
-            v0[kp_idx[select_kp_idx[0]]*3:(kp_idx[select_kp_idx[0]]+1)*3] = 0
-            v0[kp_idx[select_kp_idx[2]]*3:(kp_idx[select_kp_idx[2]]+1)*3] = 0
+            for j in range(line_points):
+                a = torch.tensor(np.concatenate(
+                    (p0_interpolation[j], p2_interpolation[j])))
+                x0, v0 = step(x0, v0, a, pysim)
+                v0[kp_idx[select_kp_idx[0]]*3:(kp_idx[select_kp_idx[0]]+1)*3] = 0
+                v0[kp_idx[select_kp_idx[2]]*3:(kp_idx[select_kp_idx[2]]+1)*3] = 0
 
-        v0 = v0 * 0
+            v0 = v0 * 0
 
-    render_record(sim, [kp_idx[select_kp_idx[0]], kp_idx[select_kp_idx[1]],
-                  kp_idx[select_kp_idx[2]], kp_idx[select_kp_idx[3]]], curves=[curve_points1, curve_points2])
+        render_record(sim, [kp_idx[select_kp_idx[0]], kp_idx[select_kp_idx[1]],
+                    kp_idx[select_kp_idx[2]], kp_idx[select_kp_idx[3]]], curves=[curve_points1, curve_points2])
 
 
 def post_process(data):
@@ -424,14 +425,14 @@ def post_process(data):
 
 if __name__ == '__main__':
     params = {
-        'name': "objs/DLG_Dress032_1.obj",
-        'mesh_file': "src/assets/meshes/objs/DLG_Dress032_1.obj",
-        'kp_file': "src/assets/meshes/objs/kp_DLG_Dress032_1.pcd",
+        'name': "objs/DLLS_Dress008_0.obj",
+        'mesh_file': "src/assets/meshes/objs/DLLS_Dress008_0.obj",
+        'kp_file': "src/assets/meshes/objs/kp_DLLS_Dress008_0.pcd",
         'drop_step': 100,
-        'select_kp_idx': [5, 7, 0, 8],
+        'select_kp_idx': [[2, 8, 0, 7], [4, 7, 1, 8]],
         "line_points": 20,
         "bend_factor": 1.5,
         "point_spacing": 0.2,
     }
 
-    data = task(params)
+    show(params)
