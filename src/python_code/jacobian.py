@@ -38,7 +38,7 @@ def jacobian_expand(vertices, triangles, points, jacobian):
     # vertices = np.array(mesh.vertices, dtype=np.float64)
     # triangles = np.array(mesh.faces, dtype=np.int32)
     distances = gdist.local_gdist_matrix(
-        vertices, triangles, max_distance=10.0)
+        vertices, triangles, max_distance=5)
     distances[distances == 0] = np.inf
     mask = np.isin(range(distances.shape[1]), points)
     distances[:, ~mask] = np.inf
@@ -58,7 +58,6 @@ def jacobian_expand(vertices, triangles, points, jacobian):
 
 def calculate_jacobian_part(pysim, x, v, a, keypoints):
     jacobian = torch.zeros((len(keypoints) * 3, 3))
-    start = time.time()
     for i, keypoint in enumerate(keypoints):
         for axis in range(3):
             a0 = a.clone().detach()
@@ -100,7 +99,7 @@ def calculate_jacobian_part_test2(pysim, x, v, a, keypoints):
 
 
 def calculate_jacobian(x, v, keypoints, config):
-    points = random.sample(range(int(len(x)/3)), 100)
+    points = random.sample(range(int(len(x)/3)), 2)
     config = config.copy()
     for index, point in enumerate(tqdm(points)):
         config['scene']['customAttachmentVertexIdx'] = [(0., [point])]
@@ -152,6 +151,33 @@ def full_jacobian(vertices, triangles, x, v, keypoints, config):
     # x_pos = x.view(-1, 3)
     # mesh.vertices = x_pos.detach().numpy()
     # jacobian, points = calculate_jacobian(x, v, keypoints, config)
+    vertices = x.detach().numpy().reshape(-1, 3).astype(np.float64)
     jacobian, points = calculate_jacobian(x, v, keypoints, config)
     jacobian_full = jacobian_expand(vertices, triangles, points, jacobian)
+    jacobian_full = torch.tensor(jacobian_full)
+    jacobian_full = jacobian_full.view(10, 3, -1, 3).permute(0, 2, 1, 3)
+    # repeat_index = random.sample(range(jacobian_full.shape[1]), 2048-jacobian_full.shape[1])
+    # jacobian_repeat = jacobian_full[:, repeat_index, :, :]
+    # jacobian_full = torch.cat((jacobian_full, jacobian_repeat), dim=1)
     return jacobian_full
+
+
+def jacobian(mesh, x, v, keypoints, config):
+    start = time.time()
+    mesh = trimesh.load(mesh)
+    x_pos = x.view(-1, 3)
+    mesh.vertices = x_pos.detach().numpy()
+    jacobian, points = calculate_jacobian(x, v, keypoints, config)
+    jacobian_full = jacobian_expand(mesh, points, jacobian)
+    jacobian_full = torch.tensor(jacobian_full)
+    jacobian_full = jacobian_full.view(10, 3, -1, 3).permute(0, 2, 1, 3)
+    repeat_index = random.sample(range(jacobian_full.shape[1]), 2048-jacobian_full.shape[1])
+    jacobian_repeat = jacobian_full[:, repeat_index, :, :]
+    jacobian_full = torch.cat((jacobian_full, jacobian_repeat), dim=1)
+    print(time.time()-start, "jacobian time")
+    return jacobian_full
+
+    
+
+
+    
