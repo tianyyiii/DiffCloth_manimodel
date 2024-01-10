@@ -224,7 +224,7 @@ def task(params):
     mesh_vertices = x0.detach().numpy().reshape(-1, 3)
 
     # select_kp_idx = [4, 7, 1, 8]
-    select_kp_idx = params["select_kp_idx"]
+    select_kp_idxs = params["select_kp_idx"]
 
     for i in tqdm.tqdm(range(params["drop_step"])):
         # stateInfo = sim.getStateInfo()
@@ -235,99 +235,100 @@ def task(params):
     v0 = v0 * 0
     # render_record(sim)
 
-    config['scene']['customAttachmentVertexIdx'] = [
-        (0.0, [kp_idx[select_kp_idx[0]], kp_idx[select_kp_idx[2]]])]
-    sim, _, _ = set_sim_from_config(config)
-    helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
-    pysim = pySim(sim, helper, True)
+    for select_kp_idx in select_kp_idxs:
+        config['scene']['customAttachmentVertexIdx'] = [
+            (0.0, [kp_idx[select_kp_idx[0]], kp_idx[select_kp_idx[2]]])]
+        sim, _, _ = set_sim_from_config(config)
+        helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
+        pysim = pySim(sim, helper, True)
 
-    p0 = get_coord_by_idx(x0, kp_idx[select_kp_idx[0]])
-    p1 = get_coord_by_idx(x0, kp_idx[select_kp_idx[1]])
-    p2 = get_coord_by_idx(x0, kp_idx[select_kp_idx[2]])
-    p3 = get_coord_by_idx(x0, kp_idx[select_kp_idx[3]])
+        p0 = get_coord_by_idx(x0, kp_idx[select_kp_idx[0]])
+        p1 = get_coord_by_idx(x0, kp_idx[select_kp_idx[1]])
+        p2 = get_coord_by_idx(x0, kp_idx[select_kp_idx[2]])
+        p3 = get_coord_by_idx(x0, kp_idx[select_kp_idx[3]])
 
-    num_points = 5
-    line_points = params["line_points"]
-    bend_factor = params["bend_factor"]
-    point_spacing = params["point_spacing"]
+        num_points = 5
+        line_points = params["line_points"]
+        bend_factor = params["bend_factor"]
+        point_spacing = params["point_spacing"]
 
-    # curve_points1 = create_bent_curve(p0.detach().numpy(
-    # ), p1.detach().numpy(), bend_factor=bend_factor, num_points=num_points)
-    # curve_points2 = create_bent_curve(p2.detach().numpy(
-    # ), p3.detach().numpy(), bend_factor=bend_factor, num_points=num_points)
+        # curve_points1 = create_bent_curve(p0.detach().numpy(
+        # ), p1.detach().numpy(), bend_factor=bend_factor, num_points=num_points)
+        # curve_points2 = create_bent_curve(p2.detach().numpy(
+        # ), p3.detach().numpy(), bend_factor=bend_factor, num_points=num_points)
 
-    curve_points1 = create_bent_curve_spacing(p0.detach().numpy(
-    ), p1.detach().numpy(), bend_factor=bend_factor, point_spacing=point_spacing)
-    curve_points2 = create_bent_curve_spacing(p2.detach().numpy(
-    ), p3.detach().numpy(), bend_factor=bend_factor, point_spacing=point_spacing)
+        curve_points1 = create_bent_curve_spacing(p0.detach().numpy(
+        ), p1.detach().numpy(), bend_factor=bend_factor, point_spacing=point_spacing)
+        curve_points2 = create_bent_curve_spacing(p2.detach().numpy(
+        ), p3.detach().numpy(), bend_factor=bend_factor, point_spacing=point_spacing)
 
-    if curve_points1.shape[0] != curve_points2.shape[0]:
-        max_points_num = max(curve_points1.shape[0], curve_points2.shape[0])
-        curve_points1 = create_bent_curve(p0.detach().numpy(), p1.detach(
-        ).numpy(), bend_factor=bend_factor, num_points=max_points_num)
-        curve_points2 = create_bent_curve(p2.detach().numpy(), p3.detach(
-        ).numpy(), bend_factor=bend_factor, num_points=max_points_num)
-        num_points = max_points_num
-    else:
-        num_points = curve_points1.shape[0]
+        if curve_points1.shape[0] != curve_points2.shape[0]:
+            max_points_num = max(curve_points1.shape[0], curve_points2.shape[0])
+            curve_points1 = create_bent_curve(p0.detach().numpy(), p1.detach(
+            ).numpy(), bend_factor=bend_factor, num_points=max_points_num)
+            curve_points2 = create_bent_curve(p2.detach().numpy(), p3.detach(
+            ).numpy(), bend_factor=bend_factor, num_points=max_points_num)
+            num_points = max_points_num
+        else:
+            num_points = curve_points1.shape[0]
 
-    # remove first points
-    curve_points1 = curve_points1[1:]
-    curve_points2 = curve_points2[1:]
-    num_points -= 1
+        # remove first points
+        curve_points1 = curve_points1[1:]
+        curve_points2 = curve_points2[1:]
+        num_points -= 1
 
-    for i in tqdm.tqdm(range(num_points)):
-        data_i = {}
+        for i in tqdm.tqdm(range(num_points)):
+            data_i = {}
 
-        p0_now = get_coord_by_idx(
-            x0, kp_idx[select_kp_idx[0]]).detach().numpy()
-        p2_now = get_coord_by_idx(
-            x0, kp_idx[select_kp_idx[2]]).detach().numpy()
-        p0_interpolation = np.linspace(p0_now, curve_points1[i], line_points + 1)[1:]
-        p2_interpolation = np.linspace(p2_now, curve_points2[i], line_points + 1)[1:]
+            p0_now = get_coord_by_idx(
+                x0, kp_idx[select_kp_idx[0]]).detach().numpy()
+            p2_now = get_coord_by_idx(
+                x0, kp_idx[select_kp_idx[2]]).detach().numpy()
+            p0_interpolation = np.linspace(p0_now, curve_points1[i], line_points + 1)[1:]
+            p2_interpolation = np.linspace(p2_now, curve_points2[i], line_points + 1)[1:]
 
-        data_i["init_state"] = x0.detach().numpy().reshape(-1, 3)
-        data_i["init_state_normal"] = calculate_vertex_normal(
-            data_i["init_state"], mesh_faces)
-        
-        data_i["attached_point"] = np.array([kp_idx[select_kp_idx[0]], kp_idx[select_kp_idx[2]]] * line_points).reshape(-1, 2)
-        data_i["attached_point_target"] = np.stack((p0_interpolation, p2_interpolation), axis=1)
-        
-        data_i["target_state"] = []
-        data_i["target_state_normal"] = []
-
-        for j in range(line_points):
-            a = torch.tensor(np.concatenate(
-                (p0_interpolation[j], p2_interpolation[j])))
-            x0, v0 = step(x0, v0, a, pysim)
-            # v0[kp_idx[select_kp_idx[0]]*3:(kp_idx[select_kp_idx[0]]+1)*3] = 0
-            # v0[kp_idx[select_kp_idx[2]]*3:(kp_idx[select_kp_idx[2]]+1)*3] = 0
-            all_target_state = x0.detach().numpy().reshape(-1, 3)
-            all_target_state_normal = calculate_vertex_normal(
-                all_target_state, mesh_faces)
-            data_i["target_state"].append(all_target_state[kp_idx])
-            data_i["target_state_normal"].append(all_target_state_normal[kp_idx])
+            data_i["init_state"] = x0.detach().numpy().reshape(-1, 3)
+            data_i["init_state_normal"] = calculate_vertex_normal(
+                data_i["init_state"], mesh_faces)
             
-        data_i["target_state"] = np.stack(data_i["target_state"], axis=0)
-        data_i["target_state_normal"] = np.stack(data_i["target_state_normal"], axis=0)
-        v0 = v0 * 0
+            data_i["attached_point"] = np.array([kp_idx[select_kp_idx[0]], kp_idx[select_kp_idx[2]]] * line_points).reshape(-1, 2)
+            data_i["attached_point_target"] = np.stack((p0_interpolation, p2_interpolation), axis=1)
+            
+            data_i["target_state"] = []
+            data_i["target_state_normal"] = []
 
-        # data_i["target_state"] = x0.detach().numpy().reshape(-1, 3)
-        # data_i["target_state_normal"] = calculate_vertex_normal(
-        #     data_i["target_state"], mesh_faces)
-        # save
+            for j in range(line_points):
+                a = torch.tensor(np.concatenate(
+                    (p0_interpolation[j], p2_interpolation[j])))
+                x0, v0 = step(x0, v0, a, pysim)
+                # v0[kp_idx[select_kp_idx[0]]*3:(kp_idx[select_kp_idx[0]]+1)*3] = 0
+                # v0[kp_idx[select_kp_idx[2]]*3:(kp_idx[select_kp_idx[2]]+1)*3] = 0
+                all_target_state = x0.detach().numpy().reshape(-1, 3)
+                all_target_state_normal = calculate_vertex_normal(
+                    all_target_state, mesh_faces)
+                data_i["target_state"].append(all_target_state[kp_idx])
+                data_i["target_state_normal"].append(all_target_state_normal[kp_idx])
+                
+            data_i["target_state"] = np.stack(data_i["target_state"], axis=0)
+            data_i["target_state_normal"] = np.stack(data_i["target_state_normal"], axis=0)
+            v0 = v0 * 0
 
-        jacobian = full_jacobian(
-            mesh_vertices, mesh_faces, x0, v0, kp_idx, config)
-        data_i["response_matrix"] = jacobian
+            # data_i["target_state"] = x0.detach().numpy().reshape(-1, 3)
+            # data_i["target_state_normal"] = calculate_vertex_normal(
+            #     data_i["target_state"], mesh_faces)
+            # save
 
-        # jacobian = calculate_jacobian(x0, v0, config, kp_idx)
-        # data_i["response_matrix"] = jacobian.detach().numpy()
-        # print(jacobian[0].shape)
+            jacobian = full_jacobian(
+                mesh_vertices, mesh_faces, x0, v0, kp_idx, config)
+            data_i["response_matrix"] = jacobian
 
-        data.append(data_i)
+            # jacobian = calculate_jacobian(x0, v0, config, kp_idx)
+            # data_i["response_matrix"] = jacobian.detach().numpy()
+            # print(jacobian[0].shape)
 
-        # break # only one step for debug
+            data.append(data_i)
+
+            # break # only one step for debug
 
     np.savez_compressed("unprocessed.npz", data=data)
     
@@ -435,4 +436,4 @@ if __name__ == '__main__':
         "point_spacing": 0.2,
     }
 
-    show(params)
+    task(params)
