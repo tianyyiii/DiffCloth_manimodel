@@ -51,7 +51,6 @@ def jacobian_expand(mesh, points, jacobian):
 
 def calculate_jacobian_part(pysim, x, v, a, keypoints):
     jacobian = torch.zeros((len(keypoints) * 3, 3))
-    start = time.time()
     for i, keypoint in enumerate(keypoints):
         for axis in range(3):
             a0 = a.clone().detach()
@@ -64,7 +63,7 @@ def calculate_jacobian_part(pysim, x, v, a, keypoints):
 
 
 def calculate_jacobian(x, v, keypoints, config):
-    points = random.sample(range(int(len(x)/3)), 100)
+    points = random.sample(range(int(len(x)/3)), 10)
     for index, point in tqdm(enumerate(points)):
         config['scene']['customAttachmentVertexIdx'] = [(0., [point])]
         sim, _, _ = set_sim_from_config(config)
@@ -79,12 +78,21 @@ def calculate_jacobian(x, v, keypoints, config):
     return jacobian, points
 
 def jacobian(mesh, x, v, keypoints, config):
+    start = time.time()
     mesh = trimesh.load(mesh)
     x_pos = x.view(-1, 3)
     mesh.vertices = x_pos.detach().numpy()
     jacobian, points = calculate_jacobian(x, v, keypoints, config)
     jacobian_full = jacobian_expand(mesh, points, jacobian)
+    jacobian_full = torch.tensor(jacobian_full)
+    jacobian_full = jacobian_full.view(10, 3, -1, 3).permute(0, 2, 1, 3)
+    repeat_index = random.sample(range(jacobian_full.shape[1]), 2048-jacobian_full.shape[1])
+    jacobian_repeat = jacobian_full[:, repeat_index, :, :]
+    jacobian_full = torch.cat((jacobian_full, jacobian_repeat), dim=1)
+    print(time.time()-start, "jacobian time")
     return jacobian_full
+
+    
 
 
     
