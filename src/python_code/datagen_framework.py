@@ -1,25 +1,26 @@
-from jacobian import full_jacobian
-import contextlib
-import io
-import json
-import time
-import random
-import open3d as o3d
-import trimesh
-import torch
-import numpy as np
-import tqdm
-import common
-from pySim.functional import SimFunction
-from pySim.pySim import pySim, pySimF
-import gc
-import math
-from renderer import WireframeRenderer
-import pywavefront
-import diffcloth_py as diffcloth
 import sys
 import os
 sys.path.insert(0, os.path.abspath("./pylib"))
+import diffcloth_py as diffcloth
+import pywavefront
+from renderer import WireframeRenderer
+import math
+import gc
+from pySim.pySim import pySim, pySimF
+from pySim.functional import SimFunction
+import common
+import tqdm
+import numpy as np
+import torch
+import trimesh
+import open3d as o3d
+import random
+import time
+import json
+import io
+import contextlib
+from jacobian import full_jacobian
+
 
 
 # sys.path.insert(0, "/root/autodl-tmp/DiffCloth_XMake/pylib")
@@ -246,9 +247,134 @@ def task(params):
     p3 = get_coord_by_idx(x0, kp_idx[select_kp_idx[3]])
 
     num_points = 5
-    line_points = 20
-    bend_factor = 1.5
-    point_spacing = 0.2
+    line_points = params["line_points"]
+    bend_factor = params["bend_factor"]
+    point_spacing = params["point_spacing"]
+
+    # curve_points1 = create_bent_curve(p0.detach().numpy(
+    # ), p1.detach().numpy(), bend_factor=bend_factor, num_points=num_points)
+    # curve_points2 = create_bent_curve(p2.detach().numpy(
+    # ), p3.detach().numpy(), bend_factor=bend_factor, num_points=num_points)
+
+    curve_points1 = create_bent_curve_spacing(p0.detach().numpy(
+    ), p1.detach().numpy(), bend_factor=bend_factor, point_spacing=point_spacing)
+    curve_points2 = create_bent_curve_spacing(p2.detach().numpy(
+    ), p3.detach().numpy(), bend_factor=bend_factor, point_spacing=point_spacing)
+
+    if curve_points1.shape[0] != curve_points2.shape[0]:
+        max_points_num = max(curve_points1.shape[0], curve_points2.shape[0])
+        curve_points1 = create_bent_curve(p0.detach().numpy(), p1.detach(
+        ).numpy(), bend_factor=bend_factor, num_points=max_points_num)
+        curve_points2 = create_bent_curve(p2.detach().numpy(), p3.detach(
+        ).numpy(), bend_factor=bend_factor, num_points=max_points_num)
+        num_points = max_points_num
+    else:
+        num_points = curve_points1.shape[0]
+
+    # remove first points
+    curve_points1 = curve_points1[1:]
+    curve_points2 = curve_points2[1:]
+    num_points -= 1
+
+    for i in tqdm.tqdm(range(num_points)):
+        data_i = {}
+
+        p0_now = get_coord_by_idx(
+            x0, kp_idx[select_kp_idx[0]]).detach().numpy()
+        p2_now = get_coord_by_idx(
+            x0, kp_idx[select_kp_idx[2]]).detach().numpy()
+        p0_interpolation = np.linspace(p0_now, curve_points1[i], line_points + 1)[1:]
+        p2_interpolation = np.linspace(p2_now, curve_points2[i], line_points + 1)[1:]
+
+        data_i["init_state"] = x0.detach().numpy().reshape(-1, 3)
+        data_i["init_state_normal"] = calculate_vertex_normal(
+            data_i["init_state"], mesh_faces)
+        
+        data_i["attached_point"] = np.array([kp_idx[select_kp_idx[0]], kp_idx[select_kp_idx[2]]] * line_points).reshape(-1, 2)
+        data_i["attached_point_target"] = np.stack((p0_interpolation, p2_interpolation), axis=1)
+        
+        data_i["target_state"] = []
+        data_i["target_state_normal"] = []
+
+        for j in range(line_points):
+            a = torch.tensor(np.concatenate(
+                (p0_interpolation[j], p2_interpolation[j])))
+            x0, v0 = step(x0, v0, a, pysim)
+            # v0[kp_idx[select_kp_idx[0]]*3:(kp_idx[select_kp_idx[0]]+1)*3] = 0
+            # v0[kp_idx[select_kp_idx[2]]*3:(kp_idx[select_kp_idx[2]]+1)*3] = 0
+            all_target_state = x0.detach().numpy().reshape(-1, 3)
+            all_target_state_normal = calculate_vertex_normal(
+                all_target_state, mesh_faces)
+            data_i["target_state"].append(all_target_state[kp_idx])
+            data_i["target_state_normal"].append(all_target_state_normal[kp_idx])
+            
+        data_i["target_state"] = np.stack(data_i["target_state"], axis=0)
+        data_i["target_state_normal"] = np.stack(data_i["target_state_normal"], axis=0)
+        v0 = v0 * 0
+
+        # data_i["target_state"] = x0.detach().numpy().reshape(-1, 3)
+        # data_i["target_state_normal"] = calculate_vertex_normal(
+        #     data_i["target_state"], mesh_faces)
+        # save
+
+        jacobian = full_jacobian(
+            mesh_vertices, mesh_faces, x0, v0, kp_idx, config)
+        data_i["response_matrix"] = jacobian
+
+        # jacobian = calculate_jacobian(x0, v0, config, kp_idx)
+        # data_i["response_matrix"] = jacobian.detach().numpy()
+        # print(jacobian[0].shape)
+
+        data.append(data_i)
+
+        # break # only one step for debug
+
+    np.savez_compressed("unprocessed.npz", data=data)
+    
+    frictional_coeff = 0.5
+    return data, kp_idx, frictional_coeff, config["fabric"]["k_stiff_stretching"], config["fabric"]["k_stiff_bending"]
+
+
+def show(params):
+    config = CONFIG.copy()
+    config['fabric']['name'] = params['name']
+    config['scene']['customAttachmentVertexIdx'] = [(0.0, [])]
+    sim, x0, v0 = set_sim_from_config(config)
+    kp_idx = get_keypoints(params["mesh_file"],
+                           params["kp_file"])
+    helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
+    pysim = pySim(sim, helper, True)
+
+    mesh_faces = np.array(diffcloth.getSimMesh(sim))
+    mesh_vertices = x0.detach().numpy().reshape(-1, 3)
+
+    # select_kp_idx = [4, 7, 1, 8]
+    select_kp_idx = params["select_kp_idx"]
+
+    for i in tqdm.tqdm(range(params["drop_step"])):
+        # stateInfo = sim.getStateInfo()
+        # a = torch.tensor(a)
+        a = torch.tensor([])
+        x0, v0 = step(x0, v0, a, pysim)
+
+    v0 = v0 * 0
+    # render_record(sim)
+
+    config['scene']['customAttachmentVertexIdx'] = [
+        (0.0, [kp_idx[select_kp_idx[0]], kp_idx[select_kp_idx[2]]])]
+    sim, _, _ = set_sim_from_config(config)
+    helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
+    pysim = pySim(sim, helper, True)
+
+    p0 = get_coord_by_idx(x0, kp_idx[select_kp_idx[0]])
+    p1 = get_coord_by_idx(x0, kp_idx[select_kp_idx[1]])
+    p2 = get_coord_by_idx(x0, kp_idx[select_kp_idx[2]])
+    p3 = get_coord_by_idx(x0, kp_idx[select_kp_idx[3]])
+
+    num_points = 5
+    line_points = params["line_points"]
+    bend_factor = params["bend_factor"]
+    point_spacing = params["point_spacing"]
 
     # curve_points1 = create_bent_curve(p0.detach().numpy(
     # ), p1.detach().numpy(), bend_factor=bend_factor, num_points=num_points)
@@ -271,11 +397,7 @@ def task(params):
         num_points = curve_points1.shape[0]
 
     for i in tqdm.tqdm(range(num_points)):
-        data_i = {}
-        # stateInfo = sim.getStateInfo()
-        # a = stateInfo.x_fixedpoints
-        # a = a + np.array([0, 0.1, 0])
-        # a = torch.tensor(a)
+
         p0_now = get_coord_by_idx(
             x0, kp_idx[select_kp_idx[0]]).detach().numpy()
         p2_now = get_coord_by_idx(
@@ -283,49 +405,26 @@ def task(params):
         p0_interpolation = np.linspace(p0_now, curve_points1[i], line_points)
         p2_interpolation = np.linspace(p2_now, curve_points2[i], line_points)
 
-        data_i["init_state"] = x0.detach().numpy().reshape(-1, 3)
-        data_i["attached_point"] = [p0_now, p2_now]
-        data_i["frictional_coeff"] = 0.5
-        data_i["init_state_normal"] = calculate_vertex_normal(
-            data_i["init_state"], mesh_faces)
-        data_i["keypoints"] = data_i["init_state"][kp_idx]
-
         for j in range(line_points):
             a = torch.tensor(np.concatenate(
                 (p0_interpolation[j], p2_interpolation[j])))
             x0, v0 = step(x0, v0, a, pysim)
             v0[kp_idx[select_kp_idx[0]]*3:(kp_idx[select_kp_idx[0]]+1)*3] = 0
             v0[kp_idx[select_kp_idx[2]]*3:(kp_idx[select_kp_idx[2]]+1)*3] = 0
-            # v0 = v0 * 0
 
-        data_i["target_state"] = x0.detach().numpy().reshape(-1, 3)
-        data_i["attached_point_target"] = [curve_points1[i], curve_points2[i]]
-        data_i["target_state_normal"] = calculate_vertex_normal(
-            data_i["target_state"], mesh_faces)
-        data_i["step_num"] = i
-        # save
-
-        jacobian = full_jacobian(
-            mesh_vertices, mesh_faces, x0, v0, kp_idx, config)
-        data_i["response_matrix"] = jacobian
-        print(jacobian.shape)
-
-        # jacobian = calculate_jacobian(x0, v0, config, kp_idx)
-        # data_i["response_matrix"] = jacobian.detach().numpy()
-        # print(jacobian[0].shape)
-
-        data.append(data_i)
-        # break
-
-    np.savez_compressed("dlg_dress.npz", data=data)
+        v0 = v0 * 0
 
     render_record(sim, [kp_idx[select_kp_idx[0]], kp_idx[select_kp_idx[1]],
                   kp_idx[select_kp_idx[2]], kp_idx[select_kp_idx[3]]], curves=[curve_points1, curve_points2])
 
 
+def post_process(data):
+    pass
+
+
 if __name__ == '__main__':
     params = {
-        'name': "remeshed/DLG_Dress032_1.obj",
+        'name': "objs/DLG_Dress032_1.obj",
         'mesh_file': "src/assets/meshes/objs/DLG_Dress032_1.obj",
         'kp_file': "src/assets/meshes/objs/kp_DLG_Dress032_1.pcd",
         'drop_step': 100,
@@ -335,4 +434,4 @@ if __name__ == '__main__':
         "point_spacing": 0.2,
     }
 
-    task(params)
+    data = task(params)
