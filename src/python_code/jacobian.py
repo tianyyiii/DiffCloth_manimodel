@@ -38,7 +38,7 @@ def jacobian_expand(vertices, triangles, points, jacobian):
     # vertices = np.array(mesh.vertices, dtype=np.float64)
     # triangles = np.array(mesh.faces, dtype=np.int32)
     distances = gdist.local_gdist_matrix(
-        vertices, triangles, max_distance=5)
+        vertices, triangles, max_distance=0.8)
     distances[distances == 0] = np.inf
     mask = np.isin(range(distances.shape[1]), points)
     distances[:, ~mask] = np.inf
@@ -99,7 +99,7 @@ def calculate_jacobian_part_test2(pysim, x, v, a, keypoints):
 
 
 def calculate_jacobian(x, v, keypoints, config):
-    points = random.sample(range(int(len(x)/3)), 2)
+    points = random.sample(range(int(len(x)/3)), 100)
     config = config.copy()
     for index, point in enumerate(tqdm(points)):
         config['scene']['customAttachmentVertexIdx'] = [(0., [point])]

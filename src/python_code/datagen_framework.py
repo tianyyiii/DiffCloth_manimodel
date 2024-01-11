@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.insert(0, os.path.abspath("./pylib"))
 from jacobian import full_jacobian
 import contextlib
 import io
@@ -17,9 +20,7 @@ import math
 from renderer import WireframeRenderer
 import pywavefront
 import diffcloth_py as diffcloth
-import sys
-import os
-sys.path.insert(0, os.path.abspath("./pylib"))
+
 
 
 # sys.path.insert(0, "/root/autodl-tmp/DiffCloth_XMake/pylib")
@@ -431,7 +432,15 @@ def show(params):
                             kp_idx[select_kp_idx[2]], kp_idx[select_kp_idx[3]]], curves=[curve_points1, curve_points2])
 
 
-def post_process(data):
+def post_process(data_path):
+    npz = np.load(data_path)
+    data = npz["data"]
+    kp_idx = npz["kp_idx"]
+    frictional_coeff = npz["frictional_coeff"]
+    k_stiff_stretching = npz["k_stiff_stretching"]
+    k_stiff_bending = npz["k_stiff_bending"]
+    
+    
     pass
 
 
