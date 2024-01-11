@@ -4,3 +4,5 @@
 /output
 /pylib/*.so
 __pycache__
+
+src/assets/meshes/objs/**

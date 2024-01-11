@@ -1,25 +1,25 @@
 import sys
 import os
 sys.path.insert(0, os.path.abspath("./pylib"))
-from jacobian import full_jacobian
-import contextlib
-import io
-import json
-import time
-import random
-import open3d as o3d
-import trimesh
-import torch
-import numpy as np
-import tqdm
-import common
-from pySim.functional import SimFunction
-from pySim.pySim import pySim, pySimF
-import gc
-import math
-from renderer import WireframeRenderer
-import pywavefront
 import diffcloth_py as diffcloth
+import pywavefront
+from renderer import WireframeRenderer
+import math
+import gc
+from pySim.pySim import pySim, pySimF
+from pySim.functional import SimFunction
+import common
+import tqdm
+import numpy as np
+import torch
+import trimesh
+import open3d as o3d
+import random
+import time
+import json
+import io
+import contextlib
+from jacobian import full_jacobian
 
 
 
@@ -223,15 +223,15 @@ def task(params):
     mesh_faces = np.array(diffcloth.getSimMesh(sim))
     mesh_vertices = x0.detach().numpy().reshape(-1, 3)
 
-    # select_kp_idx = [4, 7, 1, 8]
     select_kp_idxs = params["select_kp_idx"]
 
-    for i in tqdm.tqdm(range(params["drop_step"])):
-        # stateInfo = sim.getStateInfo()
-        # a = torch.tensor(a)
-        a = torch.tensor([])
-        x0, v0 = step(x0, v0, a, pysim)
-
+    # for i in tqdm.tqdm(range(params["drop_step"])):
+    #     # stateInfo = sim.getStateInfo()
+    #     # a = torch.tensor(a)
+    #     a = torch.tensor([])
+    #     x0, v0 = step(x0, v0, a, pysim)
+    x0 = torch.tensor(np.load(params["x0_file"])["arr_0"])
+    
     v0 = v0 * 0
     # render_record(sim)
 
@@ -432,16 +432,64 @@ def show(params):
                             kp_idx[select_kp_idx[2]], kp_idx[select_kp_idx[3]]], curves=[curve_points1, curve_points2])
 
 
-def post_process(data_path):
-    npz = np.load(data_path)
+def post_process(data_path, sample_ratio=1.5):
+    npz = np.load(data_path, allow_pickle=True)
     data = npz["data"]
     kp_idx = npz["kp_idx"]
     frictional_coeff = npz["frictional_coeff"]
     k_stiff_stretching = npz["k_stiff_stretching"]
     k_stiff_bending = npz["k_stiff_bending"]
-    
-    
-    pass
+
+    init_state = []
+    init_state_normal = []
+    attached_point = []
+    attached_point_target = []
+    target_state = []
+    target_state_normal = []
+    response_matrix = []
+
+    for d in data:
+        init_state.append(d["init_state"])
+        init_state_normal.append(d["init_state_normal"])
+        attached_point.append(d["attached_point"])
+        attached_point_target.append(d["attached_point_target"])
+        target_state.append(d["target_state"])
+        target_state_normal.append(d["target_state_normal"])
+        response_matrix.append(d["response_matrix"])
+
+    init_state = np.stack(init_state, axis=0)
+    init_state_normal = np.stack(init_state_normal, axis=0)
+    attached_point = np.stack(attached_point, axis=0)
+    attached_point_target = np.stack(attached_point_target, axis=0)
+    target_state = np.stack(target_state, axis=0)
+    target_state_normal = np.stack(target_state_normal, axis=0)
+    response_matrix = np.stack(response_matrix, axis=0)
+
+    sample_times = int(init_state.shape[1] * sample_ratio // 2048)
+
+    sample_data = []
+
+    for _ in range(sample_times):
+        sample_idx = np.random.randint(0, init_state.shape[1], 2048)
+
+        sample_data_i = {}
+        sample_data_i["init_state"] = init_state[:, sample_idx, :]
+        sample_data_i["init_state_normal"] = init_state_normal[:, sample_idx, :]
+        sample_data_i["attached_point"] = attached_point
+        sample_data_i["attached_point_target"] = attached_point_target
+        sample_data_i["target_state"] = target_state
+        sample_data_i["target_state_normal"] = target_state_normal
+        sample_data_i["response_matrix"] = response_matrix[:, :, sample_idx, :, :]
+
+        sample_data_i["frictional_coeff"] = frictional_coeff
+        sample_data_i["k_stiff_stretching"] = k_stiff_stretching
+        sample_data_i["k_stiff_bending"] = k_stiff_bending
+        sample_data_i["kp_idx"] = kp_idx
+
+        sample_data.append(sample_data_i)
+        pass
+
+    return sample_data
 
 
 def save_z(data, kp_idx, frictional_coeff, k_stiff_stretching, k_stiff_bending, path):
@@ -450,16 +498,18 @@ def save_z(data, kp_idx, frictional_coeff, k_stiff_stretching, k_stiff_bending, 
 
 
 if __name__ == '__main__':
-    params = {
-        'name': "objs/DLLS_Dress008_0.obj",
-        'mesh_file': "src/assets/meshes/objs/DLLS_Dress008_0.obj",
-        'kp_file': "src/assets/meshes/objs/kp_DLLS_Dress008_0.pcd",
-        'drop_step': 100,
-        'select_kp_idx': [[2, 8, 0, 7], [4, 7, 1, 8]],
-        "line_points": 20,
-        "bend_factor": 1.5,
-        "point_spacing": 0.2,
-    }
+    # params = {
+    #     'name': "objs/DLLS_Dress008_0.obj",
+    #     'mesh_file': "src/assets/meshes/objs/DLLS_Dress008_0.obj",
+    #     'kp_file': "src/assets/meshes/objs/kp_DLLS_Dress008_0.pcd",
+    #     'drop_step': 100,
+    #     'select_kp_idx': [[2, 8, 0, 7], [4, 7, 1, 8]],
+    #     "line_points": 20,
+    #     "bend_factor": 1.5,
+    #     "point_spacing": 0.2,
+    # }
 
-    data, kp_idx, frictional_coeff, k_stiff_stretching, k_stiff_bending = task(
-        params)
+    # data, kp_idx, frictional_coeff, k_stiff_stretching, k_stiff_bending = task(
+    #     params)
+
+    post_process("DLG_Dress032_1.npz", "DLG_Dress032_1_processed.npz")
