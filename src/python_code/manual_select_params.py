@@ -1,4 +1,4 @@
-from datagen_framework import show
+from datagen_framework import show, task
 
 
 param_template_DLG = {
@@ -48,6 +48,7 @@ def gen_param_by_name(name, subpath, param_template):
         subpath + "/" + name + ".obj"
     param['kp_file'] = "src/assets/meshes/objs/" + \
         subpath + "/kp_" + name + ".pcd"
+    param['x0_file'] = "src/assets/meshes/objs/" + subpath + "/" + name + "_x0.npz"
     return param
 
 
@@ -62,4 +63,4 @@ if __name__ == '__main__':
     # param = gen_param_by_name("DLNS_Dress001", "Long_NoSleeve", param_template_DLNS)
     # param["drop_step"] = 1
     # param = gen_param_by_name("DLLS_dress6", "Long_LongSleeve", param_template_DLNS)
-    show(param)
+    task(param)

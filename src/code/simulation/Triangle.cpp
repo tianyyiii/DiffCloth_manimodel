@@ -609,8 +609,8 @@ Triangle::Triangle(int p0_idx, int p1_idx, int p2_idx, std::vector<Particle> &pA
     double angle = getAngleABCInDegreeBetween(pArr[id1].pos_rest, pArr[id2].pos_rest,
                                               pArr[id3].pos_rest) * 180.0 / 3.14159265;
     if (angle < 20) {
-      std::printf("WARNING: MESH TOPOLOGY: angle between point %d-%d-%d is %.2f degree\n", id1,
-                  id2, id3, angle);
+      // std::printf("WARNING: MESH TOPOLOGY: angle between point %d-%d-%d is %.2f degree\n", id1,
+      //             id2, id3, angle);
     }
   }
 
@@ -631,7 +631,7 @@ Triangle::Triangle(int p0_idx, int p1_idx, int p2_idx, std::vector<Particle> &pA
   area_rest = std::abs(deltaUV.determinant() * 0.5);
   if (checkArea) {
     if (area_rest < 0.001) {
-      std::printf("WARNING: MESH TOPOLOGY: Triangle (%d, %d, %d) has area %.4f\n", p0_idx, p1_idx, p2_idx, area_rest);
+      // std::printf("WARNING: MESH TOPOLOGY: Triangle (%d, %d, %d) has area %.4f\n", p0_idx, p1_idx, p2_idx, area_rest);
     }
   }
 

@@ -37,8 +37,10 @@ def set_sim_from_config(config):
 def jacobian_expand(vertices, triangles, points, jacobian):
     # vertices = np.array(mesh.vertices, dtype=np.float64)
     # triangles = np.array(mesh.faces, dtype=np.int32)
-    distances = gdist.local_gdist_matrix(
-        vertices, triangles, max_distance=0.8)
+    # distances = gdist.local_gdist_matrix(
+    #     vertices, triangles, max_distance=10)
+    diff = vertices[:, np.newaxis, :] - vertices[np.newaxis, :, :]
+    distances = np.sqrt(np.sum(diff**2, axis=-1))
     distances[distances == 0] = np.inf
     mask = np.isin(range(distances.shape[1]), points)
     distances[:, ~mask] = np.inf
@@ -47,12 +49,14 @@ def jacobian_expand(vertices, triangles, points, jacobian):
     for point in range(len(vertices)):
         if point not in points:
             index = [i for i, v in enumerate(
-                points) if v == nearest_point[point, 0]][0]
+                points) if v == nearest_point[point]]
+            if len(index) == 0:
+                index = 0
+            else:
+                index = index[0]
         else:
             index = points.index(point)
         jacobian_full[:, point*3:point*3+3] = jacobian[:, index*3:index*3+3]
-
-    temp = nearest_point[3, 0]
     return jacobian_full
 
 
