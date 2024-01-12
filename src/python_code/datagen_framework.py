@@ -366,7 +366,7 @@ def show(params):
         x0, v0 = step(x0, v0, a, pysim)
 
     v0 = v0 * 0
-    # render_record(sim)
+    render_record(sim)
 
     for select_kp_idx in select_kp_idxs:
         config['scene']['customAttachmentVertexIdx'] = [
