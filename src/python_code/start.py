@@ -13,6 +13,10 @@ def main():
     class_name = sys.argv[2]
     out_dir = sys.argv[3]
 
+    cloth_name = cloth_name.strip()
+    class_name = class_name.strip()
+    out_dir = out_dir.strip()
+
     # ensure the out_dir exists
 
     if not os.path.exists(out_dir):
