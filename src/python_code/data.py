@@ -254,7 +254,7 @@ def main(path, category, on_ground=True, render=False, save=False):
         v0 = v0 * 0
     else:
         config['scene']['primitiveConfig'] = 0
-    
+    t = 0
     for i, sample in enumerate(samples):
         x, v = x0.clone().detach(), v0.clone().detach()
         attached_points = sample["attached_points"]
@@ -266,12 +266,11 @@ def main(path, category, on_ground=True, render=False, save=False):
         
         motion = sample["motion"]
         num_points = motion.shape[0]
-        t = 0
         for j in tqdm.tqdm(range(num_points)):
             if jacobian_step[j] == 1:
                 v = v * 0
-                #response_matrix[t, :, :, :, :] = jacobian.jacobian(mesh_path, x.clone().detach(), v.clone().detach(), kp_idx, config.copy()).detach().numpy()
-                response_matrix[t, :, :, :, :] = np.zeros((k, N, 3, 3))
+                response_matrix[t, :, :, :, :] = jacobian.jacobian(mesh_path, x.clone().detach(), v.clone().detach(), kp_idx, config.copy()).detach().numpy()
+                #response_matrix[t, :, :, :, :] = np.zeros((k, N, 3, 3))
                 x_pos = x.view(-1, 3).detach().numpy()
                 init_state[t, :, :] = x_pos  
                 init_state_normal[t, :, :] = mnormal(mesh_path, x_pos)
