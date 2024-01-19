@@ -385,17 +385,18 @@ def random_task(params, task_data_npz):
     assert upper_face_idx.shape[0] > 2
 
     task_data = np.load(task_data_npz, allow_pickle=True)["data"][1:]
+    origin_data = np.load(task_data_npz, allow_pickle=True)["data"]
     step_length = 0.5
     M = 20
-
-    for task_data_i in tqdm.tqdm(task_data, "RandomGen:" + params["name"]):
+    
+    for task_data_idx, task_data_i in enumerate(tqdm.tqdm(task_data, "RandomGen:" + params["name"])):
         for _ in range(10):
             random_data_i = {}
             init_state = task_data_i["init_state"]
             
             random_data_i["init_state"] = init_state
             random_data_i["init_state_normal"] = task_data_i["init_state_normal"]
-            random_data_i["response_matrix"] = task_data_i["response_matrix"]
+            random_data_i["response_matrix"] = origin_data[task_data_idx]["response_matrix"]
             random_data_i["attached_point"] = []
             random_data_i["attached_point_target"] = []
 
