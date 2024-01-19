@@ -343,6 +343,93 @@ def task(params):
     return data, kp_idx, frictional_coeff, config["fabric"]["k_stiff_stretching"], config["fabric"]["k_stiff_bending"]
 
 
+def random_task(params, task_data_npz):
+    config = CONFIG.copy()
+    config['fabric']['name'] = params['name']
+    config['scene']['customAttachmentVertexIdx'] = [(0.0, [])]
+    sim, x0, v0 = set_sim_from_config(config)
+    kp_idx = get_keypoints(params["mesh_file"],
+                           params["kp_file"])
+    helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
+    pysim = pySim(sim, helper, True)
+
+    random_data = []
+    mesh_faces = np.array(diffcloth.getSimMesh(sim))
+    mesh_vertices = x0.detach().numpy().reshape(-1, 3)
+
+    line_points = params["line_points"]
+
+    task_data = np.load(task_data_npz, allow_pickle=True)["data"][1:]
+    
+    for task_data_i in task_data:
+        for _ in range(10):
+            random_data_i = {}
+            init_state = task_data_i["init_state"]
+
+            x0 = torch.tensor(init_state.reshape(-1))
+            v0 = torch.zeros_like(x0)
+            
+            selected_idx = np.random.choice(init_state.shape[0], 2, replace=False)
+            
+            config['scene']['customAttachmentVertexIdx'] = [
+                (0.0, [selected_idx[0], selected_idx[1]])]
+            
+            sim, _, _ = set_sim_from_config(config)
+            helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
+            pysim = pySim(sim, helper, True)
+            
+            directions = np.random.randn(2, 3)
+            # normalize to unit vector
+            directions = directions / np.linalg.norm(directions, axis=1, keepdims=True)
+            # ensure y > 0
+            directions[:, 1] = np.abs(directions[:, 1])
+            
+            p0_now = get_coord_by_idx(
+                x0, selected_idx[0]).detach().numpy()
+            p2_now = get_coord_by_idx(
+                x0, selected_idx[1]).detach().numpy()
+            p0_target = p0_now + directions[0] * 0.2
+            p2_target = p2_now + directions[1] * 0.2
+
+            p0_interpolation = np.linspace(
+                    p0_now, p0_target, line_points + 1)[1:]
+            p2_interpolation = np.linspace(
+                    p2_now, p2_target, line_points + 1)[1:]
+            
+            random_data_i["init_state"] = init_state
+            random_data_i["init_state_normal"] = task_data_i["init_state_normal"]
+            random_data_i["attached_point"] = np.array([selected_idx[0], selected_idx[1]] * line_points).reshape(-1, 2)
+            random_data_i["attached_point_target"] = np.stack(
+                    (p0_interpolation, p2_interpolation), axis=1)
+            
+            random_data_i["target_state"] = []
+            random_data_i["target_state_normal"] = []
+            
+            for j in range(20):
+                a = torch.tensor(np.concatenate(
+                        (p0_interpolation[j], p2_interpolation[j])))
+                x0, v0 = step(x0, v0, a, pysim)
+                all_target_state = x0.detach().numpy().reshape(-1, 3)
+                all_target_state_normal = calculate_vertex_normal(
+                    all_target_state, mesh_faces)
+                random_data_i["target_state"].append(all_target_state[kp_idx])
+                random_data_i["target_state_normal"].append(
+                    all_target_state_normal[kp_idx])
+                pass
+
+            random_data_i["target_state"] = np.stack(random_data_i["target_state"], axis=0)
+            random_data_i["target_state_normal"] = np.stack(
+                random_data_i["target_state_normal"], axis=0)
+
+            jacobian = full_jacobian(
+                    mesh_vertices, mesh_faces, x0, v0, kp_idx, config)
+            random_data_i["response_matrix"] = jacobian
+
+            random_data.append(random_data_i)
+    
+    frictional_coeff = 0.5
+    return random_data, kp_idx, frictional_coeff, config["fabric"]["k_stiff_stretching"], config["fabric"]["k_stiff_bending"]
+
 def show(params):
     config = CONFIG.copy()
     config['fabric']['name'] = params['name']

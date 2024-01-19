@@ -5,13 +5,16 @@ from vispy.io import read_mesh, load_data_file
 from vispy.scene.visuals import Mesh, GridLines, Line, Markers
 from vispy.scene import transforms
 from vispy.visuals.filters import ShadingFilter, WireframeFilter
+import imageio
+import pickle
 
 
 class WireframeRenderer:
-    def __init__(self, wireframe_width=1, shininess=100, backend="pyglet"):
+    def __init__(self, wireframe_width=1, shininess=100, backend="pyglet", title="default WireframeRenderer"):
         self.app = Application(backend_name=backend)
         self.app.create()
         self.canvas = scene.SceneCanvas(
+            title=title,
             keys="interactive", bgcolor="white", app=self.app, size=(1280, 720)
         )
         self.view = self.canvas.central_widget.add_view()
@@ -71,6 +74,32 @@ class WireframeRenderer:
             mid_point = self.meshes_data[0][self.mesh_pos[0]].mean(axis=0)
             self.view.camera.center = mid_point
             pass
+        elif event.text == 's':
+            writer = imageio.get_writer('animation.gif')
+            print("saving gif ----")
+            for i in range(len(self.meshes_data[0])):
+                self.mesh_pos[0] = i
+                self.update_mesh(
+                    0, self.meshes_data[0][self.mesh_pos[0]], self.mesh_faces[0])
+                if self.kp_idx is not None:
+                    self.update_kp(
+                        self.meshes_data[0][self.mesh_pos[0]][self.kp_idx])
+                mid_point = self.meshes_data[0][self.mesh_pos[0]].mean(axis=0)
+                self.view.camera.center = mid_point
+                self.canvas.update()
+                writer.append_data(self.canvas.render())
+            writer.close()
+            print("gif saved ----")
+            pass
+        elif event.text == 'p':
+            # save camera state
+            with open('camera_state.pkl', 'wb') as f:
+                pickle.dump(self.view.camera.get_state(), f)
+        elif event.text == 'l':
+            # load the camera state
+            with open('camera_state.pkl', 'rb') as f:
+                loaded_dict = pickle.load(f)
+                self.view.camera.set_state(loaded_dict)
 
     def init_axis(self):
         scene.visuals.XYZAxis(parent=self.view.scene, width=10)
@@ -126,3 +155,24 @@ class WireframeRenderer:
         mesh = self.meshes[index]
         mesh.set_data(vertices=vert, faces=face)
         mesh.update()
+
+    def set_cam_state(self, state):
+        self.view.camera.set_state(state)
+
+    def render_gif(self, gif_file):
+        writer = imageio.get_writer(gif_file)
+        print("saving gif ----")
+        for i in range(1, len(self.meshes_data[0])):
+            self.mesh_pos[0] = i
+            self.update_mesh(
+                0, self.meshes_data[0][self.mesh_pos[0]], self.mesh_faces[0])
+            if self.kp_idx is not None:
+                self.update_kp(
+                    self.meshes_data[0][self.mesh_pos[0]][self.kp_idx])
+            mid_point = self.meshes_data[0][self.mesh_pos[0]].mean(axis=0)
+            self.view.camera.center = mid_point
+            self.canvas.update()
+            writer.append_data(self.canvas.render())
+        writer.close()
+        print("gif saved ----")
+        

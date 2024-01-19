@@ -53,14 +53,14 @@ def gen_param_by_name(name, subpath, param_template):
 
 
 if __name__ == '__main__':
-    # for name in DLNS_name:
-    #     param = gen_param_by_name(name, "DLNS", param_template_DLNS)
-    #     show(param)
+    for name in DLNS_name:
+        param = gen_param_by_name(name, "DLNS", param_template_DLNS)
+        show(param)
     # param = gen_param_by_name(
     #     "DLLS_Dress281", "Long_LongSleeve", param_template_DLLS)
-    param = gen_param_by_name(
-        "DSLS_Dress025", "Short_LongSleeve", param_template_DLLS)
+    # param = gen_param_by_name(
+    #     "DSLS_Dress025", "Short_LongSleeve", param_template_DLLS)
     # param = gen_param_by_name("DLNS_Dress001", "Long_NoSleeve", param_template_DLNS)
     # param["drop_step"] = 1
     # param = gen_param_by_name("DLLS_dress6", "Long_LongSleeve", param_template_DLNS)
-    task(param)
+    # task(param)
