@@ -144,7 +144,7 @@ OptimizeHelper* makeOptimizeHelperWithSim(std::string exampleName, Simulation* s
 {
     Simulation::forwardConvergenceThreshold = 1e-5;
     OptimizeHelper* helper = nullptr;
-    std::cerr << "example Name: " << exampleName << std::endl;
+    // std::cerr << "example Name: " << exampleName << std::endl;
     if (exampleName == "wear_hat") {
         // std::cout << "######################" << std::endl;
         // std::cout << sim->sceneConfig.fabric.name << std::endl;

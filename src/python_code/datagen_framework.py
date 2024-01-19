@@ -1,27 +1,25 @@
 import sys
 import os
 sys.path.insert(0, os.path.abspath("./pylib"))
-import diffcloth_py as diffcloth
-import pywavefront
-from renderer import WireframeRenderer
-import math
-import gc
-from pySim.pySim import pySim, pySimF
-from pySim.functional import SimFunction
-import common
-import tqdm
-import numpy as np
-import torch
-import trimesh
-import open3d as o3d
-import random
-import time
-import json
-import io
-import contextlib
 from jacobian import full_jacobian
-
-
+import contextlib
+import io
+import json
+import time
+import random
+import open3d as o3d
+import trimesh
+import torch
+import numpy as np
+import tqdm
+import common
+from pySim.functional import SimFunction
+from pySim.pySim import pySim, pySimF
+import gc
+import math
+from renderer import WireframeRenderer
+import pywavefront
+import diffcloth_py as diffcloth
 
 # sys.path.insert(0, "/root/autodl-tmp/DiffCloth_XMake/pylib")
 
@@ -231,7 +229,7 @@ def task(params):
     #     a = torch.tensor([])
     #     x0, v0 = step(x0, v0, a, pysim)
     x0 = torch.tensor(np.load(params["x0_file"])["arr_0"])
-    
+
     v0 = v0 * 0
     # render_record(sim)
 
@@ -343,6 +341,30 @@ def task(params):
     return data, kp_idx, frictional_coeff, config["fabric"]["k_stiff_stretching"], config["fabric"]["k_stiff_bending"]
 
 
+def get_nearby_point(selected_idx, x0, distance_threshold=1.0, max_num=5):
+    x0 = x0.reshape(-1, 3)
+    p0 = x0[selected_idx[0]]
+    p1 = x0[selected_idx[1]]
+
+    distances_to_p0 = torch.norm(x0 - p0, dim=1)
+    distances_to_p1 = torch.norm(x0 - p1, dim=1)
+
+    near_p0_idx = torch.where(distances_to_p0 < distance_threshold)[0]
+    near_p1_idx = torch.where(distances_to_p1 < distance_threshold)[0]
+
+    near_p0_coords = x0[near_p0_idx]
+    near_p1_coords = x0[near_p1_idx]
+
+    if near_p0_idx.shape[0] > 5:
+        near_p0_idx = near_p0_idx[:5]
+        near_p0_coords = near_p0_coords[:5]
+    if near_p1_idx.shape[0] > 5:
+        near_p1_idx = near_p1_idx[:5]
+        near_p1_coords = near_p1_coords[:5]
+
+    return near_p0_idx.tolist(), near_p1_idx.tolist(), near_p0_coords.numpy(), near_p1_coords.numpy()
+
+
 def random_task(params, task_data_npz):
     config = CONFIG.copy()
     config['fabric']['name'] = params['name']
@@ -357,78 +379,107 @@ def random_task(params, task_data_npz):
     mesh_faces = np.array(diffcloth.getSimMesh(sim))
     mesh_vertices = x0.detach().numpy().reshape(-1, 3)
 
-    line_points = params["line_points"]
+    # get the upper face points index of cloth
+    upper_face_idx = np.where(mesh_vertices[:, 1] > 0.5)[0]
+    # ensure the upper face has more than 2 points
+    assert upper_face_idx.shape[0] > 2
 
     task_data = np.load(task_data_npz, allow_pickle=True)["data"][1:]
-    
-    for task_data_i in task_data:
+    step_length = 0.5
+    M = 20
+
+    for task_data_i in tqdm.tqdm(task_data, "RandomGen:" + params["name"]):
         for _ in range(10):
             random_data_i = {}
             init_state = task_data_i["init_state"]
-
-            x0 = torch.tensor(init_state.reshape(-1))
-            v0 = torch.zeros_like(x0)
-            
-            selected_idx = np.random.choice(init_state.shape[0], 2, replace=False)
-            
-            config['scene']['customAttachmentVertexIdx'] = [
-                (0.0, [selected_idx[0], selected_idx[1]])]
-            
-            sim, _, _ = set_sim_from_config(config)
-            helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
-            pysim = pySim(sim, helper, True)
-            
-            directions = np.random.randn(2, 3)
-            # normalize to unit vector
-            directions = directions / np.linalg.norm(directions, axis=1, keepdims=True)
-            # ensure y > 0
-            directions[:, 1] = np.abs(directions[:, 1])
-            
-            p0_now = get_coord_by_idx(
-                x0, selected_idx[0]).detach().numpy()
-            p2_now = get_coord_by_idx(
-                x0, selected_idx[1]).detach().numpy()
-            p0_target = p0_now + directions[0] * 0.2
-            p2_target = p2_now + directions[1] * 0.2
-
-            p0_interpolation = np.linspace(
-                    p0_now, p0_target, line_points + 1)[1:]
-            p2_interpolation = np.linspace(
-                    p2_now, p2_target, line_points + 1)[1:]
             
             random_data_i["init_state"] = init_state
             random_data_i["init_state_normal"] = task_data_i["init_state_normal"]
-            random_data_i["attached_point"] = np.array([selected_idx[0], selected_idx[1]] * line_points).reshape(-1, 2)
-            random_data_i["attached_point_target"] = np.stack(
-                    (p0_interpolation, p2_interpolation), axis=1)
-            
+            random_data_i["response_matrix"] = task_data_i["response_matrix"]
+            random_data_i["attached_point"] = []
+            random_data_i["attached_point_target"] = []
+
             random_data_i["target_state"] = []
             random_data_i["target_state_normal"] = []
             
-            for j in range(20):
+            for mi in range(M):
+                x0 = torch.tensor(init_state.reshape(-1))
+                v0 = torch.zeros_like(x0)
+
+                selected_idx = np.random.choice(upper_face_idx, 2, replace=False)
+                
+                # step length is random from (0.5, 0.8)
+                step_length = np.random.rand() * 0.3 + 0.5
+
+                # calculate the nearby poinf of p0 and p2
+                near_p0_idx, near_p1_idx, near_p0_coords, near_p1_coords = get_nearby_point(
+                    selected_idx, x0, distance_threshold=0.1)
+
+                attach_point_list = [selected_idx[0],
+                                    selected_idx[1]] + near_p0_idx + near_p1_idx
+                config['scene']['customAttachmentVertexIdx'] = [
+                    (0.0, attach_point_list)]
+
+                sim, _, _ = set_sim_from_config(config)
+                helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
+                pysim = pySim(sim, helper, True)
+
+                directions = np.random.randn(2, 3)
+                # normalize to unit vector
+                directions = directions / \
+                    np.linalg.norm(directions, axis=1, keepdims=True)
+                # ensure y > 0
+                directions[:, 1] = np.abs(directions[:, 1])
+
+                p0_now = get_coord_by_idx(
+                    x0, selected_idx[0]).detach().numpy()
+                p2_now = get_coord_by_idx(
+                    x0, selected_idx[1]).detach().numpy()
+
+                p0_target = p0_now + directions[0] * step_length
+                p2_target = p2_now + directions[1] * step_length
+                
+                p0_near_target = near_p0_coords + directions[0] * step_length
+                p2_near_target = near_p1_coords + directions[1] * step_length
+                
+                
                 a = torch.tensor(np.concatenate(
-                        (p0_interpolation[j], p2_interpolation[j])))
-                x0, v0 = step(x0, v0, a, pysim)
-                all_target_state = x0.detach().numpy().reshape(-1, 3)
+                    (p0_target, p2_target, p0_near_target.flatten(), p2_near_target.flatten())))
+                
+                xt, vt = step(x0, v0, a, pysim)
+
+                all_target_state = xt.detach().numpy().reshape(-1, 3)
                 all_target_state_normal = calculate_vertex_normal(
                     all_target_state, mesh_faces)
                 random_data_i["target_state"].append(all_target_state[kp_idx])
                 random_data_i["target_state_normal"].append(
                     all_target_state_normal[kp_idx])
-                pass
 
-            random_data_i["target_state"] = np.stack(random_data_i["target_state"], axis=0)
+                random_data_i["attached_point"].append(np.array(selected_idx))
+                random_data_i["attached_point_target"].append(np.stack((p0_target, p2_target)))
+
+                # p0_interpolation = np.linspace(
+                #     p0_now, p0_target, line_points + 1)[1:]
+                # p2_interpolation = np.linspace(
+                #     p2_now, p2_target, line_points + 1)[1:]
+
+                # p0_near_interpolation = np.linspace(
+                #     near_p0_coords, near_p0_coords + directions[0] * step_length, line_points + 1)[1:]
+                # p2_near_interpolation = np.linspace(
+                #     near_p1_coords, near_p1_coords + directions[1] * step_length, line_points + 1)[1:]
+
+            random_data_i["target_state"] = np.stack(
+                random_data_i["target_state"], axis=0)
             random_data_i["target_state_normal"] = np.stack(
                 random_data_i["target_state_normal"], axis=0)
-
-            jacobian = full_jacobian(
-                    mesh_vertices, mesh_faces, x0, v0, kp_idx, config)
-            random_data_i["response_matrix"] = jacobian
-
+            random_data_i["attached_point"] = np.array(random_data_i["attached_point"])
+            random_data_i["attached_point_target"] = np.stack(random_data_i["attached_point_target"])
+            # render_record(sim, attach_point_list)
             random_data.append(random_data_i)
-    
+
     frictional_coeff = 0.5
     return random_data, kp_idx, frictional_coeff, config["fabric"]["k_stiff_stretching"], config["fabric"]["k_stiff_bending"]
+
 
 def show(params):
     config = CONFIG.copy()
@@ -561,12 +612,14 @@ def post_process(data_path, sample_ratio=1.5):
 
         sample_data_i = {}
         sample_data_i["init_state"] = init_state[:, sample_idx, :]
-        sample_data_i["init_state_normal"] = init_state_normal[:, sample_idx, :]
+        sample_data_i["init_state_normal"] = init_state_normal[:,
+                                                               sample_idx, :]
         sample_data_i["attached_point"] = attached_point
         sample_data_i["attached_point_target"] = attached_point_target
         sample_data_i["target_state"] = target_state
         sample_data_i["target_state_normal"] = target_state_normal
-        sample_data_i["response_matrix"] = response_matrix[:, :, sample_idx, :, :]
+        sample_data_i["response_matrix"] = response_matrix[:,
+                                                           :, sample_idx, :, :]
 
         sample_data_i["frictional_coeff"] = frictional_coeff
         sample_data_i["k_stiff_stretching"] = k_stiff_stretching
