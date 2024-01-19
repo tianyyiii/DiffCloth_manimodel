@@ -1098,6 +1098,7 @@ void Simulation::step() {
 
   }
 
+
   explosionEncountered = false;
   bool printOptimizationDetails = false;
   int TOTAL_DOF = particles.size() * 3;
@@ -1110,6 +1111,9 @@ void Simulation::step() {
   updateCurrentPosVelocityVec();
 
   stepPrimitives();
+
+  // std::cout << "---------------BBBBBBBBBBB------------------" << std::endl;
+
 
   std::pair<collisionInfoPair, std::vector<std::vector<SelfCollisionInformation>>> detectionInfos;
 
@@ -1949,6 +1953,10 @@ void Simulation::initScene() {
       centerLowPoint[1] = restShapeMinDim[1];
       plane1.center = plane1.centerInit = centerLowPoint - Vec3d(0, sphere2.radius * 2 + 0.1, 0);
       plane1.mu = 2;
+
+      // Plane tmp_plane(Vec3d(0, -0.43, 0), Vec3d(-2.64, -0.43, 2.76), Vec3d(-2.64, -0.43, -2.76), COLOR_GRAY50);
+      plane1.center = Vec3d(0, -0.43, 0);
+
       // plane1.center = Vec3d(0, 0, 0);
       sphere2.mu = 0.9;
       sphere2.center = sphere2.centerInit =

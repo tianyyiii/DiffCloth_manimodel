@@ -34,13 +34,17 @@ def set_sim_from_config(config):
     return sim, x0, v0
 
 
-def jacobian_expand(vertices, triangles, points, jacobian):
-    # vertices = np.array(mesh.vertices, dtype=np.float64)
-    # triangles = np.array(mesh.faces, dtype=np.int32)
-    # distances = gdist.local_gdist_matrix(
-    #     vertices, triangles, max_distance=10)
-    diff = vertices[:, np.newaxis, :] - vertices[np.newaxis, :, :]
-    distances = np.sqrt(np.sum(diff**2, axis=-1))
+def jacobian_expand(vertices, triangles, points, jacobian, use_gdist=False):
+    
+    if use_gdist:
+        # vertices = np.array(mesh.vertices, dtype=np.float64)
+        # triangles = np.array(mesh.faces, dtype=np.int32)
+        distances = gdist.local_gdist_matrix(
+            vertices, triangles, max_distance=10)
+    else:
+        diff = vertices[:, np.newaxis, :] - vertices[np.newaxis, :, :]
+        distances = np.sqrt(np.sum(diff**2, axis=-1))
+
     distances[distances == 0] = np.inf
     mask = np.isin(range(distances.shape[1]), points)
     distances[:, ~mask] = np.inf

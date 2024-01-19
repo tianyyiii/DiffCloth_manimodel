@@ -7,3 +7,5 @@ __pycache__
 
 src/assets/meshes/objs/**
 logs
+
+src/assets/meshes/remeshed/standard_tie/**
