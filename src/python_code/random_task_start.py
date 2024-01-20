@@ -66,8 +66,8 @@ if __name__ == '__main__':
     # class_name = sys.argv[2]
     # out_dir = sys.argv[3]
 
-    process_dir("src/assets/meshes/objs/Long_LongSleeve", "Long_LongSleeve")
-    process_dir("src/assets/meshes/objs/Long_NoSleeve", "Long_NoSleeve")
+    # process_dir("src/assets/meshes/objs/Long_LongSleeve", "Long_LongSleeve")
+    # process_dir("src/assets/meshes/objs/Long_NoSleeve", "Long_NoSleeve")
     process_dir("src/assets/meshes/objs/Long_ShortSleeve", "Long_ShortSleeve")
     process_dir("src/assets/meshes/objs/Long_Tube", "Long_Tube")
     process_dir("src/assets/meshes/objs/Short_Gallus", "Short_Gallus")
