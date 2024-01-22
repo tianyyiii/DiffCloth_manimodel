@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 设置最大线程数
-MAX_THREAD=8
+MAX_THREAD=16
 
 # 输出文件夹路径
 OUTPUT_PATH="./output"
