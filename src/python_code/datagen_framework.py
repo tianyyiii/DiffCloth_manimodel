@@ -381,12 +381,23 @@ def random_task(params, task_data_npz):
 
     # get the upper face points index of cloth
     upper_face_idx = np.where(mesh_vertices[:, 1] > 0.5)[0]
+    grasp_points = np.array(kp_idx)[np.unique(np.array(params["select_kp_idx"])[:, [0,2]])]
+    avaliable_points = []
+    for gp in grasp_points:
+        # get the nearby points of grasp points
+        distances_to_gp = np.linalg.norm(mesh_vertices - mesh_vertices[gp], axis=1)
+        nearby_idx = np.where(distances_to_gp < 0.8)[0]
+        # add the union of upper face points and nearby points to avaliable points
+        avaliable_points += np.union1d(upper_face_idx, nearby_idx).tolist()
+    # remove the duplicate points
+    avaliable_points = np.unique(avaliable_points)
     # ensure the upper face has more than 2 points
-    assert upper_face_idx.shape[0] > 2
+    assert avaliable_points.shape[0] > 2
 
     task_data = np.load(task_data_npz, allow_pickle=True)["data"][1:]
     origin_data = np.load(task_data_npz, allow_pickle=True)["data"]
     step_length = 0.5
+    interpolate_len = 3
     M = 20
     
     for task_data_idx, task_data_i in enumerate(tqdm.tqdm(task_data, "RandomGen:" + params["name"])):
@@ -407,10 +418,10 @@ def random_task(params, task_data_npz):
                 x0 = torch.tensor(init_state.reshape(-1))
                 v0 = torch.zeros_like(x0)
 
-                selected_idx = np.random.choice(upper_face_idx, 2, replace=False)
+                selected_idx = np.random.choice(avaliable_points, 2, replace=False)
                 
-                # step length is random from (0.5, 0.8)
-                step_length = np.random.rand() * 0.3 + 0.5
+                # step length is random from (1, 1.3)
+                step_length = np.random.rand() * 0.5 + 1
 
                 # calculate the nearby poinf of p0 and p2
                 near_p0_idx, near_p1_idx, near_p0_coords, near_p1_coords = get_nearby_point(
@@ -443,11 +454,20 @@ def random_task(params, task_data_npz):
                 p0_near_target = near_p0_coords + directions[0] * step_length
                 p2_near_target = near_p1_coords + directions[1] * step_length
                 
+                p0_interpolation = np.linspace(
+                    p0_now, p0_target, interpolate_len + 1)[1:]
+                p2_interpolation = np.linspace(
+                    p2_now, p2_target, interpolate_len + 1)[1:]
+                p0_near_interpolation = np.linspace(
+                    near_p0_coords, p0_near_target, interpolate_len + 1)[1:]
+                p2_near_interpolation = np.linspace(
+                    near_p1_coords, p2_near_target, interpolate_len + 1)[1:]
                 
-                a = torch.tensor(np.concatenate(
-                    (p0_target, p2_target, p0_near_target.flatten(), p2_near_target.flatten())))
-                
-                xt, vt = step(x0, v0, a, pysim)
+                for ss in range(interpolate_len):
+                    a = torch.tensor(np.concatenate(
+                        (p0_interpolation[ss], p2_interpolation[ss], p0_near_interpolation[ss].flatten(), p2_near_interpolation[ss].flatten())))
+                    
+                    xt, vt = step(x0, v0, a, pysim)
 
                 all_target_state = xt.detach().numpy().reshape(-1, 3)
                 all_target_state_normal = calculate_vertex_normal(
@@ -458,16 +478,6 @@ def random_task(params, task_data_npz):
 
                 random_data_i["attached_point"].append(np.array(selected_idx))
                 random_data_i["attached_point_target"].append(np.stack((p0_target, p2_target)))
-
-                # p0_interpolation = np.linspace(
-                #     p0_now, p0_target, line_points + 1)[1:]
-                # p2_interpolation = np.linspace(
-                #     p2_now, p2_target, line_points + 1)[1:]
-
-                # p0_near_interpolation = np.linspace(
-                #     near_p0_coords, near_p0_coords + directions[0] * step_length, line_points + 1)[1:]
-                # p2_near_interpolation = np.linspace(
-                #     near_p1_coords, near_p1_coords + directions[1] * step_length, line_points + 1)[1:]
 
             random_data_i["target_state"] = np.stack(
                 random_data_i["target_state"], axis=0)
