@@ -397,7 +397,7 @@ def random_task(params, task_data_npz):
     task_data = np.load(task_data_npz, allow_pickle=True)["data"][1:]
     origin_data = np.load(task_data_npz, allow_pickle=True)["data"]
     step_length = 0.5
-    interpolate_len = 3
+    interpolate_len = 10
     M = 20
     
     for task_data_idx, task_data_i in enumerate(tqdm.tqdm(task_data, "RandomGen:" + params["name"])):
@@ -405,23 +405,30 @@ def random_task(params, task_data_npz):
             random_data_i = {}
             init_state = task_data_i["init_state"]
             
+            # calculate the AABB of cloth
+            cloth_min = np.min(init_state.reshape(-1, 3), axis=0)
+            cloth_max = np.max(init_state.reshape(-1, 3), axis=0)
+            cloth_length = np.max(cloth_max - cloth_min)
+            
             random_data_i["init_state"] = init_state
             random_data_i["init_state_normal"] = task_data_i["init_state_normal"]
             random_data_i["response_matrix"] = origin_data[task_data_idx]["response_matrix"]
             random_data_i["attached_point"] = []
             random_data_i["attached_point_target"] = []
 
+            random_data_i["all_target_state"] = []
             random_data_i["target_state"] = []
             random_data_i["target_state_normal"] = []
             
             for mi in range(M):
                 x0 = torch.tensor(init_state.reshape(-1))
                 v0 = torch.zeros_like(x0)
-
+                
                 selected_idx = np.random.choice(avaliable_points, 2, replace=False)
                 
+                step_length = cloth_length
                 # step length is random from (1, 1.3)
-                step_length = np.random.rand() * 0.5 + 1
+                # step_length = np.random.rand() * 0.5 + 1
 
                 # calculate the nearby poinf of p0 and p2
                 near_p0_idx, near_p1_idx, near_p0_coords, near_p1_coords = get_nearby_point(
@@ -467,25 +474,33 @@ def random_task(params, task_data_npz):
                     a = torch.tensor(np.concatenate(
                         (p0_interpolation[ss], p2_interpolation[ss], p0_near_interpolation[ss].flatten(), p2_near_interpolation[ss].flatten())))
                     
-                    xt, vt = step(x0, v0, a, pysim)
+                    x0, v0 = step(x0, v0, a, pysim)
 
-                all_target_state = xt.detach().numpy().reshape(-1, 3)
+                    delta = (x0.detach().numpy().reshape(-1, 3) - init_state)
+                    avg_delta = np.mean(np.linalg.norm(delta, axis=1))
+                    if avg_delta > cloth_length / 15:
+                        print("forward step:", ss)
+                        break
+
+                all_target_state = x0.detach().numpy().reshape(-1, 3)
                 all_target_state_normal = calculate_vertex_normal(
                     all_target_state, mesh_faces)
+                random_data_i["all_target_state"].append(all_target_state)
                 random_data_i["target_state"].append(all_target_state[kp_idx])
                 random_data_i["target_state_normal"].append(
                     all_target_state_normal[kp_idx])
 
                 random_data_i["attached_point"].append(np.array(selected_idx))
                 random_data_i["attached_point_target"].append(np.stack((p0_target, p2_target)))
-
+                
+                # render_record(sim, attach_point_list)
+            random_data_i["all_target_state"] = np.stack(random_data_i["all_target_state"], axis=0)
             random_data_i["target_state"] = np.stack(
                 random_data_i["target_state"], axis=0)
             random_data_i["target_state_normal"] = np.stack(
                 random_data_i["target_state_normal"], axis=0)
             random_data_i["attached_point"] = np.array(random_data_i["attached_point"])
             random_data_i["attached_point_target"] = np.stack(random_data_i["attached_point_target"])
-            # render_record(sim, attach_point_list)
             random_data.append(random_data_i)
 
     frictional_coeff = 0.5
