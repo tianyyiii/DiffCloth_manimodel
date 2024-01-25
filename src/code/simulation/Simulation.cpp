@@ -664,7 +664,7 @@ if (!contactEnabled)
           info.d = d;
 
           // double clothFrictionalCoeff = 0.1;
-          double clothFrictionalCoeff = 0.5;
+          double clothFrictionalCoeff = this->clothFrictionalCoeff;
           double k = (m_A * m_B) / (m_A + m_B); //
           Vec3d r_i = k * calcualteDryFrictionForce(info.normal, info.d, clothFrictionalCoeff, info.type);
           info.r = r_i;
@@ -728,7 +728,7 @@ std::pair<std::pair<SpMat, SpMat>, VecXd> Simulation::calculatedr_df(const compl
           double m_A = particles[nA].mass;
           double m_B = particles[nB].mass;
           // double clothFrictionalCoeff = 0.1;
-          double clothFrictionalCoeff = 0.5;
+          double clothFrictionalCoeff = this->clothFrictionalCoeff;
 
           double k = (m_A * m_B) / (m_A + m_B);
           Mat3x3d dcalc_dd = calculatedri_dfi(info.normal, info.d, clothFrictionalCoeff);

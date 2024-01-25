@@ -36,6 +36,8 @@ public:
         TAKE_OFF, STICK, SLIDE, NUM_CASES
     };
 
+    double clothFrictionalCoeff = 0.5;
+
     struct PrimitiveCollisionInformation {
         int primitiveId;
         int particleId;

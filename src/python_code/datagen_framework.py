@@ -60,9 +60,10 @@ CONFIG = {
 }
 
 
-def set_sim_from_config(config):
+def set_sim_from_config(config, frictional_coeff=0.5):
     sim = diffcloth.makeSimFromConfig(config)
     sim.resetSystem()
+    sim.clothFrictionalCoeff = frictional_coeff
     stateInfo = sim.getStateInfo()
     x0 = stateInfo.x
     v0 = stateInfo.v
@@ -366,10 +367,24 @@ def get_nearby_point(selected_idx, x0, distance_threshold=1.0, max_num=5):
 
 
 def random_task(params, task_data_npz):
+    # generate random parameters
+    # clothFrictionalCoeff (0.1, 0.6)
+    clothFrictionalCoeff = np.random.rand() * 0.5 + 0.1
+    # density (0.5, 5)
+    density = np.random.rand() * 4.5 + 0.5
+    # k_stiff_stretching (300, 1000) in 90% of time, (1000, 5500) in 10% of time 
+    k_stiff_stretching = np.random.rand() * 700 + 300 if np.random.rand() < 0.9 else np.random.rand() * 4500 + 1000
+    # k_stiff_bending (0.01, 0.04)
+    k_stiff_bending = np.random.rand() * 0.03 + 0.01
+    
     config = CONFIG.copy()
     config['fabric']['name'] = params['name']
+    config['fabric']['density'] = density
+    config['fabric']['k_stiff_stretching'] = k_stiff_stretching
+    config['fabric']['k_stiff_bending'] = k_stiff_bending
     config['scene']['customAttachmentVertexIdx'] = [(0.0, [])]
-    sim, x0, v0 = set_sim_from_config(config)
+
+    sim, x0, v0 = set_sim_from_config(config, clothFrictionalCoeff)
     kp_idx = get_keypoints(params["mesh_file"],
                            params["kp_file"])
     helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
@@ -439,7 +454,7 @@ def random_task(params, task_data_npz):
                 config['scene']['customAttachmentVertexIdx'] = [
                     (0.0, attach_point_list)]
 
-                sim, _, _ = set_sim_from_config(config)
+                sim, _, _ = set_sim_from_config(config, clothFrictionalCoeff)
                 helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
                 pysim = pySim(sim, helper, True)
 
@@ -503,8 +518,7 @@ def random_task(params, task_data_npz):
             random_data_i["attached_point_target"] = np.stack(random_data_i["attached_point_target"])
             random_data.append(random_data_i)
 
-    frictional_coeff = 0.5
-    return random_data, kp_idx, frictional_coeff, config["fabric"]["k_stiff_stretching"], config["fabric"]["k_stiff_bending"]
+    return random_data, kp_idx, clothFrictionalCoeff, config["fabric"]["k_stiff_stretching"], config["fabric"]["k_stiff_bending"], density
 
 
 def show(params):

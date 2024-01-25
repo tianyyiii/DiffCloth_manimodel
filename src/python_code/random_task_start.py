@@ -1,10 +1,14 @@
 
 import json
 import os
+import numpy as np
 
 from tqdm import tqdm
 from datagen_framework import random_task, save_z
 
+def save_z_density(data, kp_idx, frictional_coeff, k_stiff_stretching, k_stiff_bending, density, path):
+    np.savez_compressed(path, data=data, kp_idx=kp_idx, frictional_coeff=frictional_coeff,
+                        k_stiff_stretching=k_stiff_stretching, k_stiff_bending=k_stiff_bending, density=density)
 
 def main(cloth_name, class_name, out_dir="./objs/random/"):
     cloth_name = cloth_name.strip()
@@ -34,11 +38,11 @@ def main(cloth_name, class_name, out_dir="./objs/random/"):
     task_out_file = "src/assets/meshes/objs/" + \
         class_name + "/" + cloth_name + ".npz"
 
-    data, kp_idx, frictional_coeff, k_stiff_stretching, k_stiff_bending = random_task(
+    data, kp_idx, frictional_coeff, k_stiff_stretching, k_stiff_bending, density = random_task(
         param, task_out_file)
 
-    save_z(data, kp_idx, frictional_coeff, k_stiff_stretching,
-           k_stiff_bending, out_dir + cloth_name + "_random.npz")
+    save_z_density(data, kp_idx, frictional_coeff, k_stiff_stretching,
+           k_stiff_bending, density, out_dir + cloth_name + "_random.npz")
 
 
 def process_dir(path, class_name):
