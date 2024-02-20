@@ -74,7 +74,7 @@ public:
       }
 
       std::string formatted = start + content + RESET;
-      // std::printf("%s", formatted.c_str());
+      std::printf("%s", formatted.c_str());
       return formatted;
     }
 };

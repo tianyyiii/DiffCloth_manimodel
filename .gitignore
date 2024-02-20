@@ -7,5 +7,6 @@ __pycache__
 
 src/assets/meshes/objs/**
 src/assets/meshes/remeshed/**
+src/assets/meshes/evaluate/**
 objs/**
 logs
