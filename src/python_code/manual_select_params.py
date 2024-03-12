@@ -54,6 +54,8 @@ DLNS_name = ['DLNS_Dress001', 'DLNS_Dress003_0', 'DLNS_Dress003_1', 'DLNS_Dress0
 
 LT_name = ['PL_001', 'PL_002']
 
+TS_name = ['TNSC_Tshirt_Ts1_0']
+
 def gen_param_by_name(name, subpath, param_template):
     param = param_template.copy()
     param['name'] = "objs/" + subpath + "/" + name + ".obj"
@@ -66,8 +68,8 @@ def gen_param_by_name(name, subpath, param_template):
 
 
 if __name__ == '__main__':
-    for name in LT_name:
-        param = gen_param_by_name(name, "LT", param_template_LT)
+    for name in TS_name:
+        param = gen_param_by_name(name, "TS", param_template_DLNS)
         show(param)
     # param = gen_param_by_name(
     #     "DLLS_Dress281", "Long_LongSleeve", param_template_DLLS)

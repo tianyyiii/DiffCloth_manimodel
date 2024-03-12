@@ -64,11 +64,11 @@ def write_mesh(path, mesh):
     mesh.export(path, file_type="obj")
 
 
-def simplify_mesh(mesh_file, out_file):
+def simplify_mesh(mesh_file, out_file, target=3500):
     mesh = o3d.io.read_triangle_mesh(mesh_file)
 
     vertices_num = np.asarray(mesh.vertices).shape[0]
-    if vertices_num < 3500:
+    if vertices_num < target:
         print("vertices_num < target_vertices")
         write_mesh(out_file, mesh)
         return
@@ -81,7 +81,7 @@ def simplify_mesh(mesh_file, out_file):
         tri_num = int(tri_num * 0.9)
         simplified_mesh = mesh.simplify_quadric_decimation(tri_num)
         vertices_num = np.asarray(simplified_mesh.vertices).shape[0]
-        if vertices_num < 3500:
+        if vertices_num < target:
             break
 
     # try_voxel_size = np.linspace(0.01, 5, 500)
