@@ -298,6 +298,10 @@ def evaluate_new(data_path):
 
 
 def extract_path_info_from_cloth_name_tt(cloth_name):
+    if "Long_2_" in cloth_name and "Long_2_0" not in cloth_name:
+        cloth_name = cloth_name.replace("Long_2", "2Long")
+        pass
+
     # find the number_number in cloth_name using regex \d+_\d+
     match = re.search(r'\d+_\d+', cloth_name)
     if match is None:
@@ -336,12 +340,18 @@ def evaluate_tie(input_data, i):
     if not os.path.exists(obj_path):
         raise ValueError(f"Cannot find {obj_path}")
 
-    random_data_path = 'src/assets/meshes/evaluate/TT/tie/tie_2223_heatmap.npz'
+    random_data_path = 'src/assets/meshes/evaluate/TT/tie/tie.npz'
     # ensure random_data_path exists
     if not os.path.exists(random_data_path):
         raise ValueError(f"Cannot find {random_data_path}")
 
     random_data = np.load(random_data_path, allow_pickle=True)
+
+    sample_idx_path = 'src/assets/meshes/evaluate/TT/tie/tie_sample_idx.npz'
+    if not os.path.exists(sample_idx_path):
+        raise ValueError(f"Cannot find {sample_idx_path}")
+
+    sample_idx = np.load(sample_idx_path)["sample_idx"]
 
     config = CONFIG.copy()
     config["fabric"]["name"] = obj_path[obj_path.find("meshes") + 7:]
@@ -359,28 +369,110 @@ def evaluate_tie(input_data, i):
     data_idx_m = -1
     norm_coeff = 1
 
+    similarities = []
     for j in range(random_data["init_state"].shape[0]):
-        if np.allclose(norm_pointcloud(random_data["init_state"][j]), norm_pointcloud(point_cloud)):
-            data_idx = j
-            data_idx_m = -1
-            norm_coeff = np.max(random_data["init_state"][j])
-            break
+        # if np.allclose(norm_pointcloud(random_data["init_state"][j]), norm_pointcloud(point_cloud)):
+        #     data_idx = j
+        #     data_idx_m = -1
+        #     norm_coeff = np.max(random_data["init_state"][j])
+        #     break
+        similarities.append(np.linalg.norm(norm_pointcloud(
+            random_data["init_state"][j]) - norm_pointcloud(point_cloud)))
+        pass
+    similarities = np.array(similarities)
+    min_sim_idx = np.where(similarities == similarities.min())[0]
 
-    gt_contact_point_id_expand = gt_contact_point_id.reshape(1, 1, 4)
+    gt_contact_point_id_expand = gt_contact_point_id[:2].reshape(1, 1, 2)
+    gt_contact_point_id_expand[gt_contact_point_id_expand == 2048] = -1
     matches = np.all(random_data["attached_point"]
                      == gt_contact_point_id_expand, axis=-1)
-    where = np.where(matches)
-    if len(where[0]) == 0:
-        gt_contact_point_id_expand = gt_contact_point_id[:2][::-1].reshape(
-            1, 1, 2)
-        matches = np.all(
-            np.round(random_data["attached_point"]).astype(int) == gt_contact_point_id_expand, axis=-1)
-        where = np.where(matches)
+    where1 = np.where(matches)
 
-    pass
+    gt_contact_point_id_expand[0, 0, 0], gt_contact_point_id_expand[0, 0,
+                                                                    1] = gt_contact_point_id_expand[0, 0, 1], gt_contact_point_id_expand[0, 0, 0]
+    matches = np.all(
+        np.round(random_data["attached_point"]).astype(int) == gt_contact_point_id_expand, axis=-1)
+    where2 = np.where(matches)
+
+    where = (np.concatenate((where1[0], where2[0])),
+             np.concatenate((where1[1], where2[1])))
+
+    if len(where[0]) > 0 and len(where[1]) > 0:
+        matched_idx = np.where(np.isin(where[0], min_sim_idx))[0]
+        if matched_idx.size > 1:
+            print(f"Multiple matched_idx found for tie")
+            return
+        if matched_idx.size > 0:
+            data_idx = where[0][matched_idx[0]]
+            data_idx_m = where[1][matched_idx[0]]
+            norm_coeff = np.max(random_data["init_state"][data_idx])
+
+    if data_idx == -1:
+        print(f"Cannot find the data for tie")
+        raise ValueError(f"Cannot find the data for tie")
+        return
+
+    hm = pred_contact_points_heatmap
+    force = pred_contact_force_map
+
+    # get the attachment point
+    # get the max point index from heatmap, then set all points < radius to 0, loop until no points > 2
+    radius = 0.1
+    max_pred_value = hm.max()
+    att_p = []
+
+    while not np.all(hm < max_pred_value / 2):
+        # set all points < radius to 0
+        max_point = np.where(hm == hm.max())[0][0]
+        att_p.append(max_point)
+        dist_mat = np.linalg.norm(
+            point_cloud - point_cloud[max_point], axis=1)
+        hm[dist_mat < radius] = 0
+        pass
+
+    all_init_state = random_data["init_state"][data_idx][:365]
+
+    config['scene']['customAttachmentVertexIdx'] = [
+        (0.0, sample_idx[att_p])]
+    sim, x, v = set_sim_from_config(config)
+    helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
+    pysim = pySim(sim, helper, True)
+
+    x = torch.tensor(all_init_state).flatten().to(torch.float64)
+    v = torch.zeros_like(x)
+
+    action_att_p = force[att_p] / 100
+
+    diffs_tmp = []
+    for _ in range(10):
+        act = torch.tensor(action_att_p).to(
+            torch.float64).flatten() + x.reshape(-1, 3)[sample_idx[att_p]].flatten()
+        x, v = step(x, v, act, pysim)
+
+        gt_x = random_data["all_target_state"][data_idx, data_idx_m][:365]
+        pred_x = x.reshape(-1, 3).detach().numpy()
+
+        diff = np.average(
+            np.sqrt(np.linalg.norm(gt_x - pred_x, axis=1)))
+        diffs_tmp.append(diff)
+
+    render_record(sim, sample_idx[att_p])
+    plt.plot(diffs_tmp)
+    plt.show()
 
 
-def evaluate_tt_class(data_path):
+def get_obj_inf(obj_path):
+    vert, _ = read_mesh_ignore_vtvn(obj_path)
+    mesh_vertices_number = vert.shape[0]
+
+    cloth_min = np.min(vert.reshape(-1, 3), axis=0)
+    cloth_max = np.max(vert.reshape(-1, 3), axis=0)
+    cloth_length = np.max(cloth_max - cloth_min)
+
+    return mesh_vertices_number, cloth_length
+
+
+def evaluate_tt_class(data_path, pkl_idx=0):
     if data_path[-1] != '/':
         data_path += '/'
 
@@ -389,7 +481,7 @@ def evaluate_tt_class(data_path):
     if len(pkl_files) == 0:
         print("No pkl file found in data_path")
         return
-    pkl_file = pkl_files[0]
+    pkl_file = pkl_files[pkl_idx]
 
     input_data = np.load(data_path + pkl_file, allow_pickle=True)
 
@@ -398,13 +490,18 @@ def evaluate_tt_class(data_path):
     all_diffs = []
     all_inits = []
     cloth_names = []
+    cloth_lens = []
+    heatmaps = []
+    forcemaps = []
+    gt_hms = []
+    
 
     for i, cloth_name in tqdm.tqdm(enumerate(input_data["cloth_name"])):
         # find the last / in cloth_name
         cloth_name = cloth_name[cloth_name.rfind("/") + 1:]
 
         if cloth_name.startswith("tie"):
-            evaluate_tie(input_data, i)
+            # evaluate_tie(input_data, i)
             # TODO Save the result here
             continue
             pass
@@ -413,6 +510,8 @@ def evaluate_tt_class(data_path):
         if inf is None:
             raise ValueError(f"Cannot extract path info from {cloth_name}")
         cloth_clazz, cloth_category, cloth_number, cloth_number_str = inf
+        if cloth_category == "2Long":
+            cloth_category = "Long_2"
 
         obj_path = data_path + 'objs/' + cloth_clazz + '/' + \
             cloth_category + '/' + str(cloth_number) + '/mesh.obj'
@@ -420,7 +519,8 @@ def evaluate_tt_class(data_path):
         if not os.path.exists(obj_path):
             raise ValueError(f"Cannot find {obj_path}")
 
-        mesh_vertices_number = read_mesh_ignore_vtvn(obj_path)[0].shape[0]
+        # mesh_vertices_number = read_mesh_ignore_vtvn(obj_path)[0].shape[0]
+        mesh_vertices_number, cloth_length = get_obj_inf(obj_path)
 
         random_data_path = data_path + 'random_data/' + cloth_clazz + '/' + \
             cloth_category + '/' + cloth_number_str + '/cloth_resampled.npz'
@@ -436,7 +536,11 @@ def evaluate_tt_class(data_path):
             if not os.path.exists(random_data_path):
                 raise ValueError(f"Cannot find {random_data_path}")
 
-        random_data = np.load(random_data_path, allow_pickle=True)
+        try:
+            random_data = np.load(random_data_path, allow_pickle=True)
+        except:
+            print(f"Cannot load {random_data_path}")
+            continue
 
         config = CONFIG.copy()
         config["fabric"]["name"] = obj_path[obj_path.find("meshes") + 7:]
@@ -486,8 +590,8 @@ def evaluate_tt_class(data_path):
 
         while not np.all(hm < max_pred_value / 2):
             # set all points < radius to 0
-            max_point = np.where(hm == hm.max())[0]
-            att_p.append(max_point.item())
+            max_point = np.where(hm == hm.max())[0][0]
+            att_p.append(max_point)
             dist_mat = np.linalg.norm(
                 point_cloud - point_cloud[max_point], axis=1)
             hm[dist_mat < radius] = 0
@@ -500,7 +604,8 @@ def evaluate_tt_class(data_path):
 
         config['scene']['customAttachmentVertexIdx'] = [
             (0.0, sample_idx[att_p])]
-        sim, x, v = set_sim_from_config(config)
+        sim, x, v = set_sim_from_config(
+            config, frictional_coeff=random_data["frictional_coeff"].item())
         helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
         pysim = pySim(sim, helper, True)
 
@@ -510,6 +615,7 @@ def evaluate_tt_class(data_path):
         action_att_p = force[att_p] * norm_coeff
 
         diffs_tmp = []
+        all_pred_x = []
         for _ in range(10):
             act = torch.tensor(action_att_p).to(
                 torch.float64).flatten() + x.reshape(-1, 3)[sample_idx[att_p]].flatten()
@@ -522,31 +628,822 @@ def evaluate_tt_class(data_path):
             diff = np.average(
                 np.sqrt(np.linalg.norm(gt_x - pred_x, axis=1)))
             diffs_tmp.append(diff)
+            all_pred_x.append(pred_x)
 
         # render_record(sim, sample_idx[att_p])
-        plt.plot(diffs_tmp)
-        if i % 10 == 0 and i > 0:
-            plt.show()
-            # print the min diff index of all the diffs
-            print(np.argmin(np.array(all_diffs), axis=1))
+        # plt.plot(diffs_tmp)
+        # if i % 10 == 0 and i > 0:
+        #     plt.show()
+        #     # print the min diff index of all the diffs
+        #     print(np.argmin(np.array(all_diffs), axis=1))
 
         all_diffs.append(diffs_tmp)
-        pred_xs.append(pred_x)
+        pred_xs.append(all_pred_x)
         gt_xs.append(gt_x)
         all_inits.append(all_init_state[sample_idx])
         cloth_names.append(cloth_name)
+        cloth_lens.append(cloth_length)
+        heatmaps.append(hm)
+        forcemaps.append(force)
+        gt_hms.append(input_data["gt_contact_points_heatmap"][i])
 
         print(f"{cloth_name}: {np.min(diffs_tmp)}")
 
     # save result
     # np.savez_compressed(data_path + "evaluate_result",
     #                     pred_xs=pred_xs, gt_xs=gt_xs, all_diffs=all_diffs, all_inits=all_inits)
-    np.savez_compressed(data_path + "evaluate_result",
-                        pred_xs=np.array(pred_xs, dtype=object), gt_xs=np.array(gt_xs, dtype=object), all_diffs=np.array(all_diffs, dtype=object), all_inits=np.array(all_inits, dtype=object), cloth_names=cloth_names)
+    np.savez_compressed(data_path + "evaluate_result" + pkl_file,
+                        pred_xs=np.array(pred_xs, dtype=object), gt_xs=np.array(gt_xs, dtype=object),
+                        all_diffs=np.array(all_diffs, dtype=object), all_inits=np.array(all_inits, dtype=object),
+                        cloth_names=cloth_names, cloth_lens=np.array(cloth_lens),
+                        heatmaps=heatmaps, forcemaps=forcemaps, gt_hms=gt_hms)
+    pass
+
+def evaluate_tt_class_random(data_path, pkl_idx=0):
+    if data_path[-1] != '/':
+        data_path += '/'
+
+    # find the pkl
+    pkl_files = [f for f in os.listdir(data_path) if f.endswith(".pkl")]
+    if len(pkl_files) == 0:
+        print("No pkl file found in data_path")
+        return
+    pkl_file = pkl_files[pkl_idx]
+
+    input_data = np.load(data_path + pkl_file, allow_pickle=True)
+
+    pred_xs = []
+    gt_xs = []
+    all_diffs = []
+    all_inits = []
+    cloth_names = []
+    cloth_lens = []
+    attached_points = []
+    directions = []
+
+    for i, cloth_name in tqdm.tqdm(enumerate(input_data["cloth_name"])):
+        # find the last / in cloth_name
+        cloth_name = cloth_name[cloth_name.rfind("/") + 1:]
+
+        if cloth_name.startswith("tie"):
+            # evaluate_tie(input_data, i)
+            # TODO Save the result here
+            continue
+            pass
+
+        inf = extract_path_info_from_cloth_name_tt(cloth_name)
+        if inf is None:
+            raise ValueError(f"Cannot extract path info from {cloth_name}")
+        cloth_clazz, cloth_category, cloth_number, cloth_number_str = inf
+        if cloth_category == "2Long":
+            cloth_category = "Long_2"
+
+        obj_path = data_path + 'objs/' + cloth_clazz + '/' + \
+            cloth_category + '/' + str(cloth_number) + '/mesh.obj'
+        # ensure obj_path exists
+        if not os.path.exists(obj_path):
+            raise ValueError(f"Cannot find {obj_path}")
+
+        # mesh_vertices_number = read_mesh_ignore_vtvn(obj_path)[0].shape[0]
+        mesh_vertices_number, cloth_length = get_obj_inf(obj_path)
+
+        random_data_path = data_path + 'random_data/' + cloth_clazz + '/' + \
+            cloth_category + '/' + cloth_number_str + '/cloth_resampled.npz'
+        # random_data_path = data_path + 'random_data/' + cloth_name
+        # ensure random_data_path exists
+        if not os.path.exists(random_data_path):
+            # create parent folder
+            os.makedirs(os.path.dirname(random_data_path), exist_ok=True)
+            # try to download from remote server
+            url = 'http://36.212.171.219:21333/' + cloth_clazz + '/' + \
+                cloth_category + '/' + cloth_number_str + '/cloth_resampled.npz'
+            os.system(f"wget {url} -O {random_data_path}")
+            if not os.path.exists(random_data_path):
+                raise ValueError(f"Cannot find {random_data_path}")
+
+        try:
+            random_data = np.load(random_data_path, allow_pickle=True)
+        except:
+            print(f"Cannot load {random_data_path}")
+            continue
+
+        config = CONFIG.copy()
+        config["fabric"]["name"] = obj_path[obj_path.find("meshes") + 7:]
+        config["fabric"]["k_stiff_stretching"] = random_data["kp"].item()
+        config["fabric"]["k_stiff_bending"] = random_data["kd"].item()
+        config["fabric"]["density"] = random_data["density"].item(
+        ) if "density" in random_data.keys() else 1
+
+        point_cloud = input_data["point_cloud"][i]
+        pred_contact_points_heatmap = input_data["pred_contact_points_heatmap"][i]
+        pred_contact_force_map = input_data["pred_contact_force_map"][i]
+        gt_contact_point_id = input_data["gt_contact_point_id"][i]
+
+        data_idx = -1
+        data_idx_m = -1
+        norm_coeff = 1
+
+        gt_contact_point_id_expand = gt_contact_point_id.reshape(1, 1, 4)
+        matches = np.all(random_data["attached_point"]
+                         == gt_contact_point_id_expand, axis=-1)
+        where = np.where(matches)
+        if len(where[0]) == 0:
+            gt_contact_point_id_expand[0, 0, 0], gt_contact_point_id_expand[0, 0,
+                                                                            1] = gt_contact_point_id_expand[0, 0, 1], gt_contact_point_id_expand[0, 0, 0]
+            matches = np.all(random_data["attached_point"]
+                             == gt_contact_point_id_expand, axis=-1)
+            where = np.where(matches)
+
+        if len(where[0]) > 0 and len(where[1]) > 0:
+            data_idx = where[0][0]
+            data_idx_m = where[1][0]
+            norm_coeff = np.max(random_data["init_state"][data_idx])
+
+        if data_idx == -1:
+            print(f"Cannot find the data for {cloth_name}")
+            raise ValueError(f"Cannot find the data for {cloth_name}")
+            continue
+
+        all_init_state = random_data["init_state"][data_idx][:mesh_vertices_number, :]
+        # construct sample_idx from all_init_state
+        sample_idx = calculate_sample_idxs(
+            random_data["init_state"][data_idx], mesh_vertices_number)
+        
+        random_select_attp = np.random.choice(all_init_state.shape[0], 2, replace=False)
+        attached_points.append(random_select_attp)
+        # select the other points near the selected points
+        all_attp = []
+        attp_group = []
+        for p in random_select_attp:
+            all_attp.append(p)
+            near_points = np.where(np.linalg.norm(all_init_state - all_init_state[p], axis=1) < 0.2)[0]
+            all_attp.extend(near_points)
+            attp_group.append([p] + near_points.tolist())
+        
+
+        config['scene']['customAttachmentVertexIdx'] = [
+            (0.0, sample_idx[all_attp])]
+        sim, x, v = set_sim_from_config(
+            config, frictional_coeff=random_data["frictional_coeff"].item())
+        helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
+        pysim = pySim(sim, helper, True)
+
+        x = torch.tensor(all_init_state).flatten().to(torch.float64)
+        v = torch.zeros_like(x)
+
+        # random action direction for z > 0
+        action_att_p = np.random.randn(len(random_select_attp), 3)
+        action_att_p = action_att_p / \
+                    np.linalg.norm(action_att_p, axis=1, keepdims=True)
+        action_att_p[:, 1] = np.abs(action_att_p[:, 1])
+        action_att_p = action_att_p / 2.5
+        directions.append(action_att_p)
+
+        action_att_p = np.vstack((np.repeat(action_att_p[0, :][np.newaxis, :], len(attp_group[0]), axis=0),
+                           np.repeat(action_att_p[1, :][np.newaxis, :], len(attp_group[1]), axis=0)))
+
+        diffs_tmp = []
+        for _ in range(5):
+            act = torch.tensor(action_att_p).to(
+                torch.float64).flatten() + x.reshape(-1, 3)[sample_idx[all_attp]].flatten()
+            x, v = step(x, v, act, pysim)
+
+            gt_x = random_data["target_state"][data_idx,
+                                               data_idx_m][:mesh_vertices_number, :]
+            pred_x = x.reshape(-1, 3).detach().numpy()
+
+            diff = np.average(
+                np.sqrt(np.linalg.norm(gt_x - pred_x, axis=1)))
+            diffs_tmp.append(diff)
+
+        # render_record(sim, sample_idx[att_p])
+        # plt.plot(diffs_tmp)
+        # if i % 10 == 0 and i > 0:
+        #     plt.show()
+        #     # print the min diff index of all the diffs
+        #     print(np.argmin(np.array(all_diffs), axis=1))
+
+        all_diffs.append(diffs_tmp)
+        pred_xs.append(pred_x)
+        gt_xs.append(gt_x)
+        all_inits.append(all_init_state[sample_idx])
+        cloth_names.append(cloth_name)
+        cloth_lens.append(cloth_length)
+
+        print(f"{cloth_name}: {np.min(diffs_tmp)}")
+
+    # save result
+    # np.savez_compressed(data_path + "evaluate_result",
+    #                     pred_xs=pred_xs, gt_xs=gt_xs, all_diffs=all_diffs, all_inits=all_inits)
+    np.savez_compressed(data_path + "evaluate_result_random" + pkl_file,
+                        pred_xs=np.array(pred_xs, dtype=object), gt_xs=np.array(gt_xs, dtype=object),
+                        all_diffs=np.array(all_diffs, dtype=object), all_inits=np.array(all_inits, dtype=object),
+                        cloth_names=cloth_names, cloth_lens=np.array(cloth_lens),
+                        attached_points=np.array(attached_points), directions=np.array(directions))
+    pass
+
+
+def evaluate_tt_class_heuristic(data_path, pkl_idx=0):
+    if data_path[-1] != '/':
+        data_path += '/'
+
+    # find the pkl
+    pkl_files = [f for f in os.listdir(data_path) if f.endswith(".pkl")]
+    if len(pkl_files) == 0:
+        print("No pkl file found in data_path")
+        return
+    pkl_file = pkl_files[pkl_idx]
+
+    input_data = np.load(data_path + pkl_file, allow_pickle=True)
+
+    pred_xs = []
+    gt_xs = []
+    all_diffs = []
+    all_inits = []
+    cloth_names = []
+    cloth_lens = []
+
+    for i, cloth_name in tqdm.tqdm(enumerate(input_data["cloth_name"])):
+        # find the last / in cloth_name
+        cloth_name = cloth_name[cloth_name.rfind("/") + 1:]
+
+        if cloth_name.startswith("tie"):
+            # evaluate_tie(input_data, i)
+            # TODO Save the result here
+            continue
+            pass
+
+        inf = extract_path_info_from_cloth_name_tt(cloth_name)
+        if inf is None:
+            raise ValueError(f"Cannot extract path info from {cloth_name}")
+        cloth_clazz, cloth_category, cloth_number, cloth_number_str = inf
+        if cloth_category == "2Long":
+            cloth_category = "Long_2"
+
+        obj_path = data_path + 'objs/' + cloth_clazz + '/' + \
+            cloth_category + '/' + str(cloth_number) + '/mesh.obj'
+        # ensure obj_path exists
+        if not os.path.exists(obj_path):
+            raise ValueError(f"Cannot find {obj_path}")
+
+        # mesh_vertices_number = read_mesh_ignore_vtvn(obj_path)[0].shape[0]
+        mesh_vertices_number, cloth_length = get_obj_inf(obj_path)
+
+        random_data_path = data_path + 'random_data/' + cloth_clazz + '/' + \
+            cloth_category + '/' + cloth_number_str + '/cloth_resampled.npz'
+        # random_data_path = data_path + 'random_data/' + cloth_name
+        # ensure random_data_path exists
+        if not os.path.exists(random_data_path):
+            # create parent folder
+            os.makedirs(os.path.dirname(random_data_path), exist_ok=True)
+            # try to download from remote server
+            url = 'http://36.212.171.219:21333/' + cloth_clazz + '/' + \
+                cloth_category + '/' + cloth_number_str + '/cloth_resampled.npz'
+            os.system(f"wget {url} -O {random_data_path}")
+            if not os.path.exists(random_data_path):
+                raise ValueError(f"Cannot find {random_data_path}")
+
+        try:
+            random_data = np.load(random_data_path, allow_pickle=True)
+        except:
+            print(f"Cannot load {random_data_path}")
+            continue
+
+        config = CONFIG.copy()
+        config["fabric"]["name"] = obj_path[obj_path.find("meshes") + 7:]
+        config["fabric"]["k_stiff_stretching"] = random_data["kp"].item()
+        config["fabric"]["k_stiff_bending"] = random_data["kd"].item()
+        config["fabric"]["density"] = random_data["density"].item(
+        ) if "density" in random_data.keys() else 1
+
+        point_cloud = input_data["point_cloud"][i]
+        pred_contact_points_heatmap = input_data["pred_contact_points_heatmap"][i]
+        pred_contact_force_map = input_data["pred_contact_force_map"][i]
+        gt_contact_point_id = input_data["gt_contact_point_id"][i]
+
+        data_idx = -1
+        data_idx_m = -1
+        norm_coeff = 1
+
+        gt_contact_point_id_expand = gt_contact_point_id.reshape(1, 1, 4)
+        matches = np.all(random_data["attached_point"]
+                         == gt_contact_point_id_expand, axis=-1)
+        where = np.where(matches)
+        if len(where[0]) == 0:
+            gt_contact_point_id_expand[0, 0, 0], gt_contact_point_id_expand[0, 0,
+                                                                            1] = gt_contact_point_id_expand[0, 0, 1], gt_contact_point_id_expand[0, 0, 0]
+            matches = np.all(random_data["attached_point"]
+                             == gt_contact_point_id_expand, axis=-1)
+            where = np.where(matches)
+
+        if len(where[0]) > 0 and len(where[1]) > 0:
+            data_idx = where[0][0]
+            data_idx_m = where[1][0]
+            norm_coeff = np.max(random_data["init_state"][data_idx])
+
+        if data_idx == -1:
+            print(f"Cannot find the data for {cloth_name}")
+            raise ValueError(f"Cannot find the data for {cloth_name}")
+            continue
+
+        # hm = pred_contact_points_heatmap
+        # force = pred_contact_force_map
+
+        
+
+        all_init_state = random_data["init_state"][data_idx][:mesh_vertices_number, :]
+        # construct sample_idx from all_init_state
+        sample_idx = calculate_sample_idxs(
+            random_data["init_state"][data_idx], mesh_vertices_number)
+        
+        all_target_state = random_data["target_state"][data_idx, data_idx_m][:mesh_vertices_number, :]
+        
+        hm = np.sqrt(np.linalg.norm(all_target_state - all_init_state, axis=1))
+        
+        # get the attachment point
+        # get the max point index from heatmap, then set all points < radius to 0, loop until no points > 2
+        radius = 1
+        max_pred_value = hm.max()
+        att_p = []
+
+        while not np.all(hm < max_pred_value / 2):
+            # set all points < radius to 0
+            max_point = np.where(hm == hm.max())[0][0]
+            att_p.append(max_point)
+            dist_mat = np.linalg.norm(
+                all_init_state - all_init_state[max_point], axis=1)
+            hm[dist_mat < radius] = 0
+            pass
+        
+
+        config['scene']['customAttachmentVertexIdx'] = [
+            (0.0, att_p)]
+        sim, x, v = set_sim_from_config(
+            config, frictional_coeff=random_data["frictional_coeff"].item())
+        helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
+        pysim = pySim(sim, helper, True)
+
+        x = torch.tensor(all_init_state).flatten().to(torch.float64)
+        v = torch.zeros_like(x)
+
+        # random action direction for z > 0
+        action_att_p = all_target_state[att_p]
+
+        diffs_tmp = []
+        for _ in range(1):
+            act = torch.tensor(action_att_p).to(torch.float64).flatten()
+            x, v = step(x, v, act, pysim)
+
+            gt_x = random_data["target_state"][data_idx,
+                                               data_idx_m][:mesh_vertices_number, :]
+            pred_x = x.reshape(-1, 3).detach().numpy()
+
+            diff = np.average(
+                np.sqrt(np.linalg.norm(gt_x - pred_x, axis=1)))
+            diffs_tmp.append(diff)
+
+        # render_record(sim, sample_idx[att_p])
+        # plt.plot(diffs_tmp)
+        # if i % 10 == 0 and i > 0:
+        #     plt.show()
+        #     # print the min diff index of all the diffs
+        #     print(np.argmin(np.array(all_diffs), axis=1))
+
+        all_diffs.append(diffs_tmp)
+        pred_xs.append(pred_x)
+        gt_xs.append(gt_x)
+        all_inits.append(all_init_state[sample_idx])
+        cloth_names.append(cloth_name)
+        cloth_lens.append(cloth_length)
+
+        print(f"{cloth_name}: {np.min(diffs_tmp)}")
+
+    # save result
+    # np.savez_compressed(data_path + "evaluate_result",
+    #                     pred_xs=pred_xs, gt_xs=gt_xs, all_diffs=all_diffs, all_inits=all_inits)
+    np.savez_compressed(data_path + "evaluate_result_heuristic" + pkl_file,
+                        pred_xs=np.array(pred_xs, dtype=object), gt_xs=np.array(gt_xs, dtype=object),
+                        all_diffs=np.array(all_diffs, dtype=object), all_inits=np.array(all_inits, dtype=object),
+                        cloth_names=cloth_names, cloth_lens=np.array(cloth_lens))
+    pass
+
+
+def evaluate_tt_class_gt(data_path, pkl_idx=0):
+    if data_path[-1] != '/':
+        data_path += '/'
+
+    # find the pkl
+    pkl_files = [f for f in os.listdir(data_path) if f.endswith(".pkl")]
+    if len(pkl_files) == 0:
+        print("No pkl file found in data_path")
+        return
+    pkl_file = pkl_files[pkl_idx]
+
+    input_data = np.load(data_path + pkl_file, allow_pickle=True)
+
+    pred_xs = []
+    gt_xs = []
+    all_diffs = []
+    all_inits = []
+    cloth_names = []
+    cloth_lens = []
+
+    for i, cloth_name in tqdm.tqdm(enumerate(input_data["cloth_name"])):
+        # find the last / in cloth_name
+        cloth_name = cloth_name[cloth_name.rfind("/") + 1:]
+
+        if cloth_name.startswith("tie"):
+            # evaluate_tie(input_data, i)
+            # TODO Save the result here
+            continue
+            pass
+
+        inf = extract_path_info_from_cloth_name_tt(cloth_name)
+        if inf is None:
+            raise ValueError(f"Cannot extract path info from {cloth_name}")
+        cloth_clazz, cloth_category, cloth_number, cloth_number_str = inf
+        if cloth_category == "2Long":
+            cloth_category = "Long_2"
+
+        obj_path = data_path + 'objs/' + cloth_clazz + '/' + \
+            cloth_category + '/' + str(cloth_number) + '/mesh.obj'
+        # ensure obj_path exists
+        if not os.path.exists(obj_path):
+            raise ValueError(f"Cannot find {obj_path}")
+
+        # mesh_vertices_number = read_mesh_ignore_vtvn(obj_path)[0].shape[0]
+        mesh_vertices_number, cloth_length = get_obj_inf(obj_path)
+
+        random_data_path = data_path + 'random_data/' + cloth_clazz + '/' + \
+            cloth_category + '/' + cloth_number_str + '/cloth_resampled.npz'
+        # random_data_path = data_path + 'random_data/' + cloth_name
+        # ensure random_data_path exists
+        if not os.path.exists(random_data_path):
+            # create parent folder
+            os.makedirs(os.path.dirname(random_data_path), exist_ok=True)
+            # try to download from remote server
+            url = 'http://36.212.171.219:21333/' + cloth_clazz + '/' + \
+                cloth_category + '/' + cloth_number_str + '/cloth_resampled.npz'
+            os.system(f"wget {url} -O {random_data_path}")
+            if not os.path.exists(random_data_path):
+                raise ValueError(f"Cannot find {random_data_path}")
+
+        try:
+            random_data = np.load(random_data_path, allow_pickle=True)
+        except:
+            print(f"Cannot load {random_data_path}")
+            continue
+
+        config = CONFIG.copy()
+        config["fabric"]["name"] = obj_path[obj_path.find("meshes") + 7:]
+        config["fabric"]["k_stiff_stretching"] = random_data["kp"].item()
+        config["fabric"]["k_stiff_bending"] = random_data["kd"].item()
+        config["fabric"]["density"] = random_data["density"].item(
+        ) if "density" in random_data.keys() else 1
+
+        point_cloud = input_data["point_cloud"][i]
+        pred_contact_points_heatmap = input_data["pred_contact_points_heatmap"][i]
+        pred_contact_force_map = input_data["pred_contact_force_map"][i]
+        gt_contact_point_id = input_data["gt_contact_point_id"][i]
+
+        data_idx = -1
+        data_idx_m = -1
+        norm_coeff = 1
+
+        gt_contact_point_id_expand = gt_contact_point_id.reshape(1, 1, 4)
+        matches = np.all(random_data["attached_point"]
+                         == gt_contact_point_id_expand, axis=-1)
+        where = np.where(matches)
+        if len(where[0]) == 0:
+            gt_contact_point_id_expand[0, 0, 0], gt_contact_point_id_expand[0, 0,
+                                                                            1] = gt_contact_point_id_expand[0, 0, 1], gt_contact_point_id_expand[0, 0, 0]
+            matches = np.all(random_data["attached_point"]
+                             == gt_contact_point_id_expand, axis=-1)
+            where = np.where(matches)
+
+        if len(where[0]) > 0 and len(where[1]) > 0:
+            data_idx = where[0][0]
+            data_idx_m = where[1][0]
+            norm_coeff = np.max(random_data["init_state"][data_idx])
+
+        if data_idx == -1:
+            print(f"Cannot find the data for {cloth_name}")
+            raise ValueError(f"Cannot find the data for {cloth_name}")
+            continue
+
+        # hm = pred_contact_points_heatmap
+        # force = pred_contact_force_map
+
+        
+
+        all_init_state = random_data["init_state"][data_idx][:mesh_vertices_number, :]
+        # construct sample_idx from all_init_state
+        sample_idx = calculate_sample_idxs(
+            random_data["init_state"][data_idx], mesh_vertices_number)
+        
+        all_target_state = random_data["target_state"][data_idx, data_idx_m][:mesh_vertices_number, :]
+
+        att_p = random_data["attached_point"][data_idx, data_idx_m]
+        # remove all 2048
+        att_p = att_p[att_p < 2048]
+        
+
+        config['scene']['customAttachmentVertexIdx'] = [
+            (0.0, att_p)]
+        sim, x, v = set_sim_from_config(
+            config, frictional_coeff=random_data["frictional_coeff"].item())
+        helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
+        pysim = pySim(sim, helper, True)
+
+        x = torch.tensor(all_init_state).flatten().to(torch.float64)
+        v = torch.zeros_like(x)
+
+        # random action direction for z > 0
+        action_att_p = all_target_state[att_p]
+
+        diffs_tmp = []
+
+        interpolate_len = 5
+        # interplote the action
+        interplote = np.linspace(all_init_state[att_p], all_target_state[att_p], interpolate_len + 1)[1:]
+        
+        
+        for ii in range(interpolate_len):
+            act = torch.tensor(interplote[ii].flatten()).to(torch.float64).flatten()
+            x, v = step(x, v, act, pysim)
+
+            gt_x = random_data["target_state"][data_idx,
+                                               data_idx_m][:mesh_vertices_number, :]
+            pred_x = x.reshape(-1, 3).detach().numpy()
+
+            diff = np.average(
+                np.sqrt(np.linalg.norm(gt_x - pred_x, axis=1)))
+            diffs_tmp.append(diff)
+
+        # render_record(sim, sample_idx[att_p])
+        # plt.plot(diffs_tmp)
+        # if i % 10 == 0 and i > 0:
+        #     plt.show()
+        #     # print the min diff index of all the diffs
+        #     print(np.argmin(np.array(all_diffs), axis=1))
+
+        all_diffs.append(diffs_tmp)
+        pred_xs.append(pred_x)
+        gt_xs.append(gt_x)
+        all_inits.append(all_init_state[sample_idx])
+        cloth_names.append(cloth_name)
+        cloth_lens.append(cloth_length)
+
+        print(f"{cloth_name}: {np.min(diffs_tmp)}")
+
+    # save result
+    # np.savez_compressed(data_path + "evaluate_result",
+    #                     pred_xs=pred_xs, gt_xs=gt_xs, all_diffs=all_diffs, all_inits=all_inits)
+    np.savez_compressed(data_path + "evaluate_result_gt" + pkl_file,
+                        pred_xs=np.array(pred_xs, dtype=object), gt_xs=np.array(gt_xs, dtype=object),
+                        all_diffs=np.array(all_diffs, dtype=object), all_inits=np.array(all_inits, dtype=object),
+                        cloth_names=cloth_names, cloth_lens=np.array(cloth_lens))
+    pass
+
+
+def evaluate_tt_class_predflow(data_path, pkl_idx=0):
+    if data_path[-1] != '/':
+        data_path += '/'
+
+    # find the pkl
+    pkl_files = [f for f in os.listdir(data_path) if f.endswith(".pkl")]
+    if len(pkl_files) == 0:
+        print("No pkl file found in data_path")
+        return
+    pkl_file = pkl_files[pkl_idx]
+
+    input_data = np.load(data_path + pkl_file, allow_pickle=True)
+
+    pred_xs = []
+    gt_xs = []
+    all_diffs = []
+    all_inits = []
+    cloth_names = []
+    cloth_lens = []
+    heatmaps = []
+    forcemaps = []
+    gt_hms = []
+    attached_points = []
+    directions = []
+
+    for i, cloth_name in tqdm.tqdm(enumerate(input_data["cloth_name"])):
+        # find the last / in cloth_name
+        cloth_name = cloth_name[cloth_name.rfind("/") + 1:]
+
+        if cloth_name.startswith("tie"):
+            # evaluate_tie(input_data, i)
+            # TODO Save the result here
+            continue
+            pass
+
+        inf = extract_path_info_from_cloth_name_tt(cloth_name)
+        if inf is None:
+            raise ValueError(f"Cannot extract path info from {cloth_name}")
+        cloth_clazz, cloth_category, cloth_number, cloth_number_str = inf
+        if cloth_category == "2Long":
+            cloth_category = "Long_2"
+
+        obj_path = data_path + 'objs/' + cloth_clazz + '/' + \
+            cloth_category + '/' + str(cloth_number) + '/mesh.obj'
+        # ensure obj_path exists
+        if not os.path.exists(obj_path):
+            raise ValueError(f"Cannot find {obj_path}")
+
+        # mesh_vertices_number = read_mesh_ignore_vtvn(obj_path)[0].shape[0]
+        mesh_vertices_number, cloth_length = get_obj_inf(obj_path)
+
+        random_data_path = data_path + 'random_data/' + cloth_clazz + '/' + \
+            cloth_category + '/' + cloth_number_str + '/cloth_resampled.npz'
+        # random_data_path = data_path + 'random_data/' + cloth_name
+        # ensure random_data_path exists
+        if not os.path.exists(random_data_path):
+            # create parent folder
+            os.makedirs(os.path.dirname(random_data_path), exist_ok=True)
+            # try to download from remote server
+            url = 'http://36.212.171.219:21333/' + cloth_clazz + '/' + \
+                cloth_category + '/' + cloth_number_str + '/cloth_resampled.npz'
+            os.system(f"wget {url} -O {random_data_path}")
+            if not os.path.exists(random_data_path):
+                raise ValueError(f"Cannot find {random_data_path}")
+
+        try:
+            random_data = np.load(random_data_path, allow_pickle=True)
+        except:
+            print(f"Cannot load {random_data_path}")
+            continue
+
+        config = CONFIG.copy()
+        config["fabric"]["name"] = obj_path[obj_path.find("meshes") + 7:]
+        config["fabric"]["k_stiff_stretching"] = random_data["kp"].item()
+        config["fabric"]["k_stiff_bending"] = random_data["kd"].item()
+        config["fabric"]["density"] = random_data["density"].item(
+        ) if "density" in random_data.keys() else 1
+
+        point_cloud = input_data["point_cloud"][i]
+        pred_contact_points_heatmap = input_data["pred_contact_points_heatmap"][i]
+        pred_contact_force_map = input_data["pred_contact_force_map"][i]
+        gt_contact_point_id = input_data["gt_contact_point_id"][i]
+        pred_tgt_point_motion = input_data["pred_tgt_point_motion"][i]
+
+        data_idx = -1
+        data_idx_m = -1
+        norm_coeff = 1
+
+        gt_contact_point_id_expand = gt_contact_point_id.reshape(1, 1, 4)
+        matches = np.all(random_data["attached_point"]
+                         == gt_contact_point_id_expand, axis=-1)
+        where = np.where(matches)
+        if len(where[0]) == 0:
+            gt_contact_point_id_expand[0, 0, 0], gt_contact_point_id_expand[0, 0,
+                                                                            1] = gt_contact_point_id_expand[0, 0, 1], gt_contact_point_id_expand[0, 0, 0]
+            matches = np.all(random_data["attached_point"]
+                             == gt_contact_point_id_expand, axis=-1)
+            where = np.where(matches)
+
+        if len(where[0]) > 0 and len(where[1]) > 0:
+            data_idx = where[0][0]
+            data_idx_m = where[1][0]
+            norm_coeff = np.max(random_data["init_state"][data_idx])
+
+        if data_idx == -1:
+            print(f"Cannot find the data for {cloth_name}")
+            raise ValueError(f"Cannot find the data for {cloth_name}")
+            continue
+
+        hm = pred_contact_points_heatmap
+        force = pred_tgt_point_motion
+
+        # get the attachment point
+        # get the max point index from heatmap, then set all points < radius to 0, loop until no points > 2
+        radius = 0.4
+        max_pred_value = hm.max()
+        att_p = []
+
+        while not np.all(hm < max_pred_value / 2):
+            # set all points < radius to 0
+            max_point = np.where(hm == hm.max())[0][0]
+            att_p.append(max_point)
+            dist_mat = np.linalg.norm(
+                point_cloud - point_cloud[max_point], axis=1)
+            hm[dist_mat < radius] = 0
+            pass
+
+        all_init_state = random_data["init_state"][data_idx][:mesh_vertices_number, :]
+        # construct sample_idx from all_init_state
+        sample_idx = calculate_sample_idxs(
+            random_data["init_state"][data_idx], mesh_vertices_number)
+        
+        attached_points.append(sample_idx[att_p])
+
+        all_attp = []
+        attp_group = []
+        for p in att_p:
+            p = sample_idx[p]
+            near_points = np.where(np.linalg.norm(all_init_state - all_init_state[p], axis=1) < 0.1)[0]
+            all_attp.extend(near_points)
+            attp_group.append([p] + near_points.tolist())
+
+
+        config['scene']['customAttachmentVertexIdx'] = [
+            (0.0, sample_idx[all_attp])]
+        sim, x, v = set_sim_from_config(
+            config, frictional_coeff=random_data["frictional_coeff"].item())
+        helper = diffcloth.makeOptimizeHelperWithSim("wear_hat", sim)
+        pysim = pySim(sim, helper, True)
+
+        x = torch.tensor(all_init_state).flatten().to(torch.float64)
+        v = torch.zeros_like(x)
+
+        action_att_p = force[att_p] * norm_coeff * 0.8
+        directions.append(action_att_p)
+        
+        action_att_p = force[all_attp]
+        # normalize the action
+        action_att_p = action_att_p / \
+                    np.linalg.norm(action_att_p, axis=1, keepdims=True)
+        action_att_p = action_att_p / 2
+
+        diffs_tmp = []
+        all_pred_x = []
+        for _ in range(10):
+            act = torch.tensor(action_att_p).to(
+                torch.float64).flatten() + x.reshape(-1, 3)[sample_idx[all_attp]].flatten()
+            x, v = step(x, v, act, pysim)
+
+            gt_x = random_data["target_state"][data_idx,
+                                               data_idx_m][:mesh_vertices_number, :]
+            pred_x = x.reshape(-1, 3).detach().numpy()
+
+            diff = np.average(
+                np.sqrt(np.linalg.norm(gt_x - pred_x, axis=1)))
+            diffs_tmp.append(diff)
+            all_pred_x.append(pred_x)
+
+        # render_record(sim, sample_idx[att_p])
+        # plt.plot(diffs_tmp)
+        # if i % 10 == 0 and i > 0:
+        #     plt.show()
+        #     # print the min diff index of all the diffs
+        #     print(np.argmin(np.array(all_diffs), axis=1))
+
+        all_diffs.append(diffs_tmp)
+        pred_xs.append(all_pred_x)
+        gt_xs.append(gt_x)
+        all_inits.append(all_init_state[sample_idx])
+        cloth_names.append(cloth_name)
+        cloth_lens.append(cloth_length)
+        heatmaps.append(pred_contact_points_heatmap)
+        forcemaps.append(force)
+        gt_hms.append(input_data["gt_contact_points_heatmap"][i])
+
+        print(f"{cloth_name}: {np.min(diffs_tmp)}")
+
+    # save result
+    # np.savez_compressed(data_path + "evaluate_result",
+    #                     pred_xs=pred_xs, gt_xs=gt_xs, all_diffs=all_diffs, all_inits=all_inits)
+    np.savez_compressed(data_path + "evaluate_result_predflow" + pkl_file,
+                        pred_xs=np.array(pred_xs, dtype=object), gt_xs=np.array(gt_xs, dtype=object),
+                        all_diffs=np.array(all_diffs, dtype=object), all_inits=np.array(all_inits, dtype=object),
+                        cloth_names=cloth_names, cloth_lens=np.array(cloth_lens),
+                        heatmaps=heatmaps, forcemaps=forcemaps, gt_hms=gt_hms,
+                        attached_points=np.array(attached_points, dtype=object), directions=np.array(directions, dtype=object))
     pass
 
 
 if __name__ == '__main__':
     # evaluate("src/assets/meshes/evaluate/DSG_Dress102")
     # evaluate_new("src/assets/meshes/evaluate/test")
-    evaluate_tt_class("src/assets/meshes/evaluate/TT")
+    # evaluate_tt_class("src/assets/meshes/evaluate/TT", 0)
+    # evaluate_tt_class("src/assets/meshes/evaluate/TT", 1)
+    # evaluate_tt_class("src/assets/meshes/evaluate/TT", 2)
+    # evaluate_tt_class("src/assets/meshes/evaluate/TT", 3)
+    # evaluate_tt_class("src/assets/meshes/evaluate/TT", 4)
+    # evaluate_tt_class("src/assets/meshes/evaluate/TT", 5)
+    # evaluate_tt_class("src/assets/meshes/evaluate/TT", 6)
+    # evaluate_tt_class("src/assets/meshes/evaluate/TT", 7)
+    # evaluate_tt_class("src/assets/meshes/evaluate/TT", 8)
+    # evaluate_tt_class("src/assets/meshes/evaluate/TT", 9)
+    
+    # for i in range(12):
+    #     evaluate_tt_class("src/assets/meshes/evaluate/TT", i)
+        
+    # evaluate_tt_class_predflow("src/assets/meshes/evaluate/TT", 2)
+    # evaluate_tt_class_predflow("src/assets/meshes/evaluate/TT", 5)
+    evaluate_tt_class_predflow("src/assets/meshes/evaluate/TT", 9)
+    # evaluate_tt_class_predflow("src/assets/meshes/evaluate/TT", 10)
+    # evaluate_tt_class_predflow("src/assets/meshes/evaluate/TT", 3)
+    # evaluate_tt_class_predflow("src/assets/meshes/evaluate/TT", 4)
+
+    # evaluate_tt_class_random("src/assets/meshes/evaluate/TT", 3)
+    # evaluate_tt_class_random("src/assets/meshes/evaluate/TT", 4)
+    # evaluate_tt_class_gt("src/assets/meshes/evaluate/TT", 3)
+    # evaluate_tt_class_gt("src/assets/meshes/evaluate/TT", 4)
+    # evaluate_tt_class_heuristic("src/assets/meshes/evaluate/TT", 3)
+    # evaluate_tt_class_heuristic("src/assets/meshes/evaluate/TT", 4)
+    
+    
