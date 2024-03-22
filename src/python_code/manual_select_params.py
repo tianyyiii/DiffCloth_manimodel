@@ -68,8 +68,8 @@ def gen_param_by_name(name, subpath, param_template):
 
 
 if __name__ == '__main__':
-    for name in TS_name:
-        param = gen_param_by_name(name, "TS", param_template_DLNS)
+    for name in DLNS_name:
+        param = gen_param_by_name(name, "DLNS", param_template_DLNS)
         show(param)
     # param = gen_param_by_name(
     #     "DLLS_Dress281", "Long_LongSleeve", param_template_DLLS)
